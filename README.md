@@ -67,17 +67,51 @@ $$
 &=(R(m\theta)q_m)^{\mathsf T}(R(n\theta)k_n)\\
 &=q_m^{\mathsf T}R(m\theta)^{\mathsf T}R(n\theta)k_n\\
 &=q_m^{\mathsf T}R((n-m)\theta)k_n.
-\end{aligned}\tag{1}
+\end{aligned}
 $$
 
 其中用到了旋转矩阵的两个性质：
 
 $$
 R(\alpha)^{\mathsf T}=R(-\alpha),\qquad
-R(\alpha)R(\beta)=R(\alpha+\beta).\tag{2}\label{eq2}
+R(\alpha)R(\beta)=R(\alpha+\beta).
 $$
 
 可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$，而只依赖两者的相对距离 $n-m$。这正是 RoPE 巧妙之处：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
+
+继续把上面的式子展开。
+
+记 $k_n^\perp$ 为 $k_n$ 逆时针旋转 $90^\circ$ 后的向量（即 $(-k_2,k_1)$），利用 
+$$
+\begin{aligned}
+R(\Delta)k
+&=\begin{bmatrix}
+\cos(m\theta) & -\sin(m\theta)\\
+\sin(m\theta) & \cos(m\theta)
+\end{bmatrix}\begin{bmatrix} k_1\\k_2\end{bmatrix}\\
+&=\begin{bmatrix}k_1\cos\Delta-k_2\sin\Delta\\k_1\sin\Delta+k_2\cos\Delta\end{bmatrix}\\
+&=\begin{bmatrix} k_1 \\ k_2 \end{bmatrix}\cos\Delta + \begin{bmatrix} -k_2\\k_1\end{bmatrix}\sin\Delta\\
+&= k\cos\Delta+k^\perp\sin\Delta
+\end{aligned},
+$$
+
+可以得到
+
+$$
+\begin{aligned}
+\langle \tilde q_m,\tilde k_n\rangle
+&=q_m^{\mathsf T}R((n-m)\theta)k_n\\
+&=q_m^{\mathsf T}\left (k_n\cos((n-m)\theta)+k_n^\perp\sin((n-m)\theta)\right )\\
+&=\underbrace{\langle q_m,k_n\rangle}_{\text{内容相似度}}\cos\bigl((n-m)\theta\bigr)
++\underbrace{\langle q_m,k_n^\perp\rangle}_{\text{正交分量}}\sin\bigl((n-m)\theta\bigr).
+\end{aligned}
+$$
+
+这样就一目了然：
+
+- 当 $m=n$ 时，$\cos 0=1,\ \sin 0=0$，分数退化为纯内容相似度，位置不干扰内容匹配；
+- 距离拉开时，$\cos$ 项给内容相似度乘上一个随距离起伏的权重，$\sin$ 项掺入一个与内容正交的分量；
+- 所以 RoPE 没有把位置加到分数上，而是**用相对距离去调制内容匹配的结果**——位置是乘性门控，不是加性偏置。
 
 3. 扩展到高维向量
 
@@ -91,11 +125,11 @@ $$
 
 $$
 R_m=\mathrm{diag}\bigl(
-R(m\theta_0),R(m\theta_1),\ldots,R(m\theta_{d/2-1})
+R(m\theta_0),R(m\theta_1),\ldots,R(m\theta_{\frac{d}{2}-1})
 \bigr).
 $$
 
-不同维度具有不同的旋转速度：高频维度对短距离的位置变化更敏感，低频维度变化较慢，可以表达更长尺度的位置关系。于是标准缩放点积注意力写成
+于是标准缩放点积注意力写成
 
 $$
 \mathrm{Attention}(m,n)
@@ -107,23 +141,48 @@ $$
 
 4. 直观理解
 
-也可以把每两个维度写成复数 $z=x_1+\mathrm{i}x_2$。二维旋转就等价于
+**（a）复数视角：位置就是相位"**
+
+把每两个维度看成复平面上的一根指针 $z=x_1+\mathrm{i}x_2$。乘以 $e^{\mathrm{i}m\theta}$ 就是把指针逆时针转动 $m\theta$：
 
 $$
-z_m=z\,e^{\mathrm{i}m\theta}.
+z^{(m)}=z\ e^{\mathrm{i}m\theta}.
 $$
 
-query 与 key 做内积时，两个绝对位置对应的相位相减，留下只与相位差 $(n-m)\theta$ 有关的项，因此模型感知到的是相对距离。同时，旋转不会改变向量的模长，即
+于是**指针的绝对角度（相位）唯一地携带了绝对位置 $m$**。到这里为止，RoPE 注入的还是绝对信息。
+
+真正的关键在内积的复数写法。实内积等于 $\langle \tilde q_m,\tilde k_n\rangle=\mathrm{Re}\bigl(z^{(m)}_q\,\overline{z^{(n)}_k}\bigr)$, 注意第二个因子要取共轭，共轭把相位取反：$e^{\mathrm{i}n\theta}\to e^{-\mathrm{i}n\theta}$。因此
 
 $$
-\lVert R_mx\rVert_2=\lVert x\rVert_2,
+z^{(m)}_q\,\overline{z^{(n)}_k}
+=\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}m\theta}e^{-\mathrm{i}n\theta}
+=\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}(m-n)\theta}.
 $$
 
-所以 RoPE 在注入位置信息时不会直接改变 query 和 key 的长度，只会改变它们之间的夹角。Value 通常不需要旋转，因为位置信息已经通过注意力权重进入了加权求和过程。
+两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$，实现了"绝对进、相对出"。
+
+**（b）几何视角：只转弯，不改长度**
+
+旋转是刚体运动，模长一致：$\lVert R_mx\rVert_2=\lVert x\rVert_2$。 RoPE 不会像加性位置编码那样扰动 query/key 的模长与数值分布，它只改变向量的朝向，而朝向正是内积所度量的东西。
+
+**（c）多频率**
+
+$d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$）：
+
+- **高频指针**转得快，相邻位置也有明显相位差，分辨率高、能精细区分近邻；但转过一整圈后相位开始"复用"，长距离上会出现周期性混叠。
+- **低频指针**转得慢，在很长距离上都近似单调变化，能覆盖长程依赖，但近处区分度低。
+
+但是问题也在这里埋下了：这既是 RoPE 表达力的来源，也是后文长上下文振荡与混叠的根源。
+
+**（d）为什么 value 不需要旋转**
+
+位置信息的目标只是决定"关注谁"，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}v_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
 
 ## 重新审视 RoPE：怎么失灵了？
 
-论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](./2605.15514v1.pdf)（Du et al., 2026，arXiv v1）提出了一个比“RoPE 不容易外推”更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
+当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，高频维度的旋转角度会进入模型从未见过的相位区间，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中必须依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
+
+此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](./2605.15514v1.pdf)（Du et al., 2026，arXiv v1）提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
 
 ### 从旋转矩阵到振荡信号
 
