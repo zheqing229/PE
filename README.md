@@ -30,7 +30,7 @@ RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进�
 
 非常推荐阅读苏剑林苏神的博客：
 - [让研究人员绞尽脑汁的Transformer位置编码](https://spaces.ac.cn/archives/8130) 这篇介绍了早期的绝对和相对位置编码，以及早期关于 RoPE 想法的出现，读完之后真的会由衷赞叹苏神的想法，简直是太美妙了。
-- [Transformer升级之路：2、博采众长的旋转式位置编码](https://spaces.ac.cn/archives/8265) 这篇比较详细介绍了 RoPE 的原理，非常推荐。
+- [Transformer升级之路：2、博采众长的旋转式位置编码](https://spaces.ac.cn/archives/8265) 这篇比较详细介绍了 RoPE 的原理。
 - 以及 RoPE 的论文：
 [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864)
 
@@ -82,6 +82,7 @@ $$
 继续把上面的式子展开。
 
 记 $k_n^\perp$ 为 $k_n$ 逆时针旋转 $90^\circ$ 后的向量（即 $(-k_2,k_1)$），利用 
+
 $$
 \begin{aligned}
 R(\Delta)k
@@ -132,7 +133,7 @@ $$
 于是标准缩放点积注意力写成
 
 $$
-\mathrm{Attention}(m,n)
+\mathrm{Attn}(m,n)
 =\frac{(R_mq_m)^{\mathsf T}(R_nk_n)}{\sqrt d}
 =\frac{q_m^{\mathsf T}R_{n-m}k_n}{\sqrt d}.
 $$
@@ -141,7 +142,7 @@ $$
 
 4. 直观理解
 
-**（a）复数视角：位置就是相位"**
+**（a）复数视角：位置就是相位**
 
 把每两个维度看成复平面上的一根指针 $z=x_1+\mathrm{i}x_2$。乘以 $e^{\mathrm{i}m\theta}$ 就是把指针逆时针转动 $m\theta$：
 
@@ -186,14 +187,89 @@ $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$�
 
 ### 从旋转矩阵到振荡信号
 
-令 query 与 key 的相对距离为 $r$，head dimension 为 $d=2h$。把每两个维度合并后，RoPE 作用下的未归一化注意力分数可以写成
+回顾刚刚给出的二维 RoPE 展开：
+$\langle \tilde q_m,\tilde k_n\rangle=\langle q_m,k_n\rangle\cos\bigl((n-m)\theta\bigr)
++\langle q_m,k_n^\perp\rangle\sin\bigl((n-m)\theta\bigr)$.
+
+把 $\langle q_m,k_n\rangle$ 和 $\langle q_m,k_n^\perp\rangle$ 分别记作 $A$ 和 $B$，则有
 
 $$
-S_{q,k}(r)
-=\sum_{j=0}^{h-1}a_j\cos(r\theta_j+\phi_j).
+\begin{aligned}
+\langle \tilde q_m,\tilde k_n\rangle
+&=A\cos\bigl((n-m)\theta\bigr)+B\sin\bigl((n-m)\theta\bigr)\\
+&=C\cos\bigl((n-m)\theta+\phi\bigr)\\
+C&=\sqrt{A^2+B^2}
+\end{aligned}.
 $$
 
-其中，$a_j$ 和 $\phi_j$ 由 query、key 的内容决定，$\theta_j=B^{-j/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
+其中 $A$, $B$, $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
+
+我们把二维的公式拓展到 $d=2h$ 维，把 query 与 key 的相对距离记为 $r$。每两个维度合并后，RoPE 作用下的未归一化注意力分数就可以写成
+
+$$
+\mathrm{Attn}_{q,k}(r)
+=\sum_{j=0}^{h-1}C_j\cos(r\theta_j+\phi_j).
+$$
+
+$\theta_j=B^{-j/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
+
+接下来我们尝试把这些余弦波按照在上下文长度 $L$ 内转得快还是慢分成两堆。
+
+对第 $j$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_j$ 变成 $r\theta_j + \phi_j$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_j$ 弧度。
+
+- 如果存在 $r < L$ 使得 $r\theta_j \gtrsim 2\pi$，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
+- 而如果所有 $r$ 都有 $r\theta_j \ll \pi$，则这个分量**只扫过一小段圆弧**，$\cos$ 值几乎单调缓降。
+
+在上下文长度 $L$ 内刚好转满一圈的临界条件是
+
+$$
+L \cdot \theta_j \approx 2\pi
+\quad\Longrightarrow\quad
+L \cdot B^{-j/h} \approx 2\pi.
+$$
+
+两边取对数解 $j$：
+
+$$
+j \approx h \log_B\!\frac{L}{2\pi}
+= \Theta(h\log_B L).
+$$
+
+记$\lambda(L)=\Theta(h\log_B L)$：
+
+- \(n \ll \lambda(M)\)：转得比一圈还多 → **高频，振荡**
+- \(n \gg \lambda(M)\)：转不到半圈 → **低频，缓降**
+
+论文在附录里写得更具体：当 \(n\gg\lambda(M)\) 时 \(m\theta_n+\phi_n \in [0,\pi]\)，所以 \(\cos\) 在 \(m\in[0,M)\) 上随 \(m\) 单调下降——这就是 recency bias（近的位置分高）。
+
+## 4. 一组具体数字
+
+取 Llama 常见配置 \(B=10^4,\ h=64\)，看 \(M=8192\)：
+
+\[
+\lambda \approx 64 \cdot \log_{10000}\frac{8192}{2\pi} \approx 64 \times 0.77 \approx 49.
+\]
+
+于是大致上：
+
+- \(n = 0,\ldots,48\)：高频。例如 \(n=0\)，\(\theta_0=1\)，约 6 个 token 就转一圈，在 8K 里振荡上千次。
+- \(n = 49,\ldots,63\)：低频。最慢的 \(n=63\)，\(\theta_{63}\approx 10^{-4}\)，转一圈要几万 token，在 8K 内几乎只挪了一点点，\(\cos\) 就是一条缓降曲线。
+
+## 5. 为什么论文要这么分
+
+这是后文所有失败模式分析的起点：
+
+| 分量 | 作用 | 失效方式 |
+|---|---|---|
+| 高频振荡 | 区分**邻近**位置 | 上下文一长，振荡太密 → 近处位置也分不清（position aliasing） |
+| 低频缓降 | 区分**遥远**位置 + 稳住 token 相关性 | \(M\) 接近 \(\Theta(B)\) 时连最低频也开始转圈 → 远近颠倒（position inversion） |
+
+Remark 2.1 说的「均值由低频决定、方差由高频决定」也是这个意思：低频项在 \([0,M)\) 上几乎不变，贡献均值 \(\mu \approx \sum_{n\ge\lambda} a_n\cos\phi_n\)；高频项在 \([0,M)\) 上充分振荡，贡献方差 \(\sigma^2 \approx \frac12\sum_{n<\lambda} a_n^2\)。
+
+---
+
+**一句话总结**：\(\lambda(M)\) 就是「转满一圈的临界下标」。比它小的分量在上下文里疯狂打转（振荡、帮你看清近处），比它大的分量几乎不转（缓降、帮你给远处定序）。上下文 \(M\) 越大，\(\lambda\) 越大，越多分量被卷入振荡，低频的「缓降保护」被掏空——这就是 RoPE 在长上下文里失效的机制起点。
+
 
 - 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
 - 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
