@@ -67,15 +67,15 @@ $$
 &=(R(m\theta)q_m)^{\mathsf T}(R(n\theta)k_n)\\
 &=q_m^{\mathsf T}R(m\theta)^{\mathsf T}R(n\theta)k_n\\
 &=q_m^{\mathsf T}R((n-m)\theta)k_n.
-\end{aligned}
+\end{aligned}\tag{1}
 $$
 
 其中用到了旋转矩阵的两个性质：
 
-\begin{equation}
+$$
 R(\alpha)^{\mathsf T}=R(-\alpha),\qquad
-R(\alpha)R(\beta)=R(\alpha+\beta).
-\end{equation}
+R(\alpha)R(\beta)=R(\alpha+\beta).\tag{2}\label{eq2}
+$$
 
 可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$，而只依赖两者的相对距离 $n-m$。这正是 RoPE 巧妙之处：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
 
