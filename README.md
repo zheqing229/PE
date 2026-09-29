@@ -72,12 +72,12 @@ $$
 
 其中用到了旋转矩阵的两个性质：
 
-$$
+\begin{equation}
 R(\alpha)^{\mathsf T}=R(-\alpha),\qquad
 R(\alpha)R(\beta)=R(\alpha+\beta).
-$$
+\end{equation}
 
-可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$，而只依赖两者的相对距离 $n-m$。这正是 RoPE 最关键的数学性质：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
+可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$，而只依赖两者的相对距离 $n-m$。这正是 RoPE 巧妙之处：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
 
 3. 扩展到高维向量
 
@@ -90,7 +90,7 @@ $$
 整体旋转矩阵是一个分块对角矩阵：
 
 $$
-R_m=\operatorname{diag}\bigl(
+R_m=\mathrm{diag}\bigl(
 R(m\theta_0),R(m\theta_1),\ldots,R(m\theta_{d/2-1})
 \bigr).
 $$
@@ -98,7 +98,7 @@ $$
 不同维度具有不同的旋转速度：高频维度对短距离的位置变化更敏感，低频维度变化较慢，可以表达更长尺度的位置关系。于是标准缩放点积注意力写成
 
 $$
-\operatorname{Attention}(m,n)
+\mathrm{Attention}(m,n)
 =\frac{(R_mq_m)^{\mathsf T}(R_nk_n)}{\sqrt d}
 =\frac{q_m^{\mathsf T}R_{n-m}k_n}{\sqrt d}.
 $$
