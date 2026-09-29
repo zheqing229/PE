@@ -208,111 +208,134 @@ $$
 
 $$
 \mathrm{Attn}_{q,k}(r)
-=\sum_{j=0}^{h-1}C_j\cos(r\theta_j+\phi_j).
+=\sum_{n=0}^{h-1}C_n\cos(r\theta_n+\phi_n).
 $$
 
-$\theta_j=B^{-j/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
+$\theta_n=B^{-n/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
 
 接下来我们尝试把这些余弦波按照在上下文长度 $L$ 内转得快还是慢分成两堆。
 
-对第 $j$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_j$ 变成 $r\theta_j + \phi_j$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_j$ 弧度。
+对第 $n$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_n$ 变成 $r\theta_n + \phi_n$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_n$ 弧度。
 
-- 如果存在 $r < L$ 使得 $r\theta_j \gtrsim 2\pi$，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
-- 而如果所有 $r$ 都有 $r\theta_j \ll \pi$，则这个分量**只扫过一小段圆弧**，$\cos$ 值几乎单调缓降。
+- 如果存在 $r < L$ 使得 $r\theta_n \gtrsim 2\pi$，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
+- 而如果所有 $r$ 都有 $r\theta_n \ll \pi$，则这个分量**只扫过一小段圆弧**，$\cos$ 值几乎单调缓降。
 
 在上下文长度 $L$ 内刚好转满一圈的临界条件是
 
 $$
-L \cdot \theta_j \approx 2\pi
+L \cdot \theta_n \approx 2\pi
 \quad\Longrightarrow\quad
-L \cdot B^{-j/h} \approx 2\pi.
-$$
-
-两边取对数解 $j$：
-
-$$
-j \approx h \log_B\!\frac{L}{2\pi}
+L \cdot B^{-n/h} \approx 2\pi
+\Longrightarrow
+n \approx h \log_B\!\frac{L}{2\pi}
 = \Theta(h\log_B L).
 $$
 
 记$\lambda(L)=\Theta(h\log_B L)$：
 
-- \(n \ll \lambda(M)\)：转得比一圈还多 → **高频，振荡**
-- \(n \gg \lambda(M)\)：转不到半圈 → **低频，缓降**
-
-论文在附录里写得更具体：当 \(n\gg\lambda(M)\) 时 \(m\theta_n+\phi_n \in [0,\pi]\)，所以 \(\cos\) 在 \(m\in[0,M)\) 上随 \(m\) 单调下降——这就是 recency bias（近的位置分高）。
-
-## 4. 一组具体数字
-
-取 Llama 常见配置 \(B=10^4,\ h=64\)，看 \(M=8192\)：
-
-\[
-\lambda \approx 64 \cdot \log_{10000}\frac{8192}{2\pi} \approx 64 \times 0.77 \approx 49.
-\]
-
-于是大致上：
-
-- \(n = 0,\ldots,48\)：高频。例如 \(n=0\)，\(\theta_0=1\)，约 6 个 token 就转一圈，在 8K 里振荡上千次。
-- \(n = 49,\ldots,63\)：低频。最慢的 \(n=63\)，\(\theta_{63}\approx 10^{-4}\)，转一圈要几万 token，在 8K 内几乎只挪了一点点，\(\cos\) 就是一条缓降曲线。
-
-## 5. 为什么论文要这么分
-
-这是后文所有失败模式分析的起点：
-
-| 分量 | 作用 | 失效方式 |
-|---|---|---|
-| 高频振荡 | 区分**邻近**位置 | 上下文一长，振荡太密 → 近处位置也分不清（position aliasing） |
-| 低频缓降 | 区分**遥远**位置 + 稳住 token 相关性 | \(M\) 接近 \(\Theta(B)\) 时连最低频也开始转圈 → 远近颠倒（position inversion） |
-
-Remark 2.1 说的「均值由低频决定、方差由高频决定」也是这个意思：低频项在 \([0,M)\) 上几乎不变，贡献均值 \(\mu \approx \sum_{n\ge\lambda} a_n\cos\phi_n\)；高频项在 \([0,M)\) 上充分振荡，贡献方差 \(\sigma^2 \approx \frac12\sum_{n<\lambda} a_n^2\)。
-
----
-
-**一句话总结**：\(\lambda(M)\) 就是「转满一圈的临界下标」。比它小的分量在上下文里疯狂打转（振荡、帮你看清近处），比它大的分量几乎不转（缓降、帮你给远处定序）。上下文 \(M\) 越大，\(\lambda\) 越大，越多分量被卷入振荡，低频的「缓降保护」被掏空——这就是 RoPE 在长上下文里失效的机制起点。
-
-
-- 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
-- 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
+- $ n \ll \lambda(L)$：转得比一圈还多 → 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
+- $n \gg \lambda(L)$：转一个非常小的角度 → 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
 
 论文的关键分析是：当距离 $r$ 从一个足够长的区间中采样时，可以借助中心极限定理，把这个余弦和近似看成正态随机变量
 
 $$
-\widetilde{S}_{q,k}\sim
-\mathcal N\left(\mu_M,\sigma_M^2\right),
+\widetilde{\mathrm{Attn}}_{q,k}\sim
+\mathcal N\left(\mu_L,\sigma_L^2\right),
 $$
 
-其中均值 $\mu_M$ 主要由尚未充分旋转的低频项决定，方差 $\sigma_M^2$ 主要由不断振荡的高频项决定。随着上下文长度 $M$ 增大，低频项越来越少、振荡项越来越多，因此整体表现为**均值衰减、方差增大**，注意力分数也越来越难预测。
+其中均值 $\mu_L$ 主要由尚未充分旋转的低频项决定，方差 $\sigma_L^2$ 主要由不断振荡的高频项决定。随着上下文长度 $L$ 增大，低频项越来越少、振荡项越来越多，因此整体表现为**均值衰减、方差增大**，注意力分数也越来越难预测。
 
-### 四种失效模式
+推导过程大致概括如下，严谨的证明推荐去看原论文。
 
-论文据此总结了四种现象：
+当 $q,k$ 固定后，$C_n,\phi_n$ 就定了，$\mathrm{Attn}(r)$ 只是 $q$ 和 $k$ 的相对距离 $r$ 的函数：
 
-| 失效模式 | 数学表现 | 直观含义 |
+$$
+\mathrm{Attn}(r)=\sum_{n=0}^{h-1} \underbrace{C_n\cos(r\theta_n+\phi_n)}_{\Psi_n(r)}.
+$$
+
+我们尝试描述距离 $r$ 的分布是是**在上下文长度 $[0,L)$ 上均匀分布**的。那么每个 $\Psi_n$ 就是一个随机变量，从而 $\mathrm{Attn}$ 也是随机变量。所以问题变成：$\mathrm{Attn}$ 的分布长什么样？
+
+我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$，$\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时，$\alpha(r) = r\theta_n + \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\alpha(m)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\alpha$ 近似**均匀分布在 $[0,2\pi)$**，概率密度 $p(\alpha)\approx\frac{1}{2\pi},\quad 0\le \alpha < 2\pi$
+
+ 
+可以得到：
+
+$$
+\mathbb{E}[\cos\alpha]\approx\int_{0}^{2\pi}\cos\alpha \cdot \frac{1}{2\pi}\,d\alpha=0\\
+\begin{aligned}
+\mathbb{E}\left[\cos^2\alpha\right]
+&\approx\int_{0}^{2\pi}\cos^2\alpha \cdot \frac{1}{2\pi}\,d\alpha \\
+&=\frac{1}{2\pi}\int_{0}^{2\pi}\frac{1+\cos2\alpha}{2}\,d\alpha \\
+&=\frac{1}{4\pi}\left(2\pi+\left.\frac12\sin2\alpha\right|_{0}^{2\pi}\right) \\
+&=\frac12
+\end{aligned}
+$$ 
+
+所以每个高频项
+
+$$
+\mathbb{E}[\Psi_n]\approx 0,\qquad
+\mathrm{Var}(\Psi_n)\approx \frac{C_n^2}{2}.
+$$
+
+**转得越快，越像噪声：对均值几乎没有贡献，只贡献波动。**
+
+论文里用 Dirichlet Kernel 证明：$r$ 在长区间上均匀时，$\mathbb{E}[\Psi_n]=O(\frac{2C_n}{L\theta_n})\to 0$，$\mathbb{E}[\Psi_n^2]\to a_n^2/2$。
+
+
+再看**低频项**，低频项给我一种“冰冻”的感觉。当 $n \gg \lambda(L)$，$\theta_n$ 很小，$r\in[0,L)$ 时 $r\theta_n$ 扫过的角度非常小(O(1))：
+
+$$
+r\theta_n+\phi_n \approx \phi_n,\qquad
+\cos(r\theta_n+\phi_n)\approx \cos\phi_n.
+$$
+
+也就是说这个余弦几乎不随 $m$ 变，像一个常数：
+
+$$
+\mathbb{E}[\Psi_n]\approx C_n\cos\phi_n,\qquad
+\mathrm{Var}(\Psi_n)\approx 0.
+$$
+
+**转得越慢，越像常数：抬高或压低整体水平（均值），不制造波动。**
+
+此时我们注意到：
+
+**(a) 各频率项近似独立。**
+$\theta=B^{-1/h}$ 时，序列 $1,\theta,\theta^2,\ldots$ 在有理数集 $\mathbb{Q}$ 上几乎线性无关（Weyl 等分布准则），$\theta_n=B^{n(-1/h)}=\theta^n$，于是 $m\theta_n \bmod 2\pi$ 对不同 $n$ 近似独立均匀。论文估计协方差 $\mathrm{Cov}[\Psi_n\Psi_p]=O(\frac{C_nC_p}{M\theta_n})$，高频时极小可忽略。
+
+**(b) 中心极限定理。**
+高频项 $\sum_{n<\lambda(M)} C_n\cos(r\theta_n+\phi_n)$ 是许多独立、均值为 0、无单项主导的随机项之和，渐近正态。Berry–Esseen 给出误差 $O(1/\sqrt{\lambda(L)})$。
+
+再加上低频项近似常数，整体就是：
+
+$$
+\boxed{
+\widetilde{\mathrm{Attn}} \sim \mathcal{N}(\mu_L,\ \sigma_L^2),\quad
+\mu_L \approx \sum_{n\ge\lambda(M)} C_n\cos\phi_n,\quad
+\sigma_L^2 \approx \frac12\sum_{n<\lambda(L)} C_n^2
+}
+$$
+
+均值由**低频**决定，方差由**高频**决定。
+
+论文给出了一个正态分布拟合注意力分数的图.
+
+![](NormalApprox.png)
+
+### 四种失败模式
+
+| 现象 | 数学表现 | 直观含义 |
 |---|---|---|
-| 位置反转 | $r_1<r_2$，但 $S(r_1)<S(r_2)$ | 同一个 token 放得更远，注意力分数反而更高，局部性偏置失效 |
-| 位置混叠 | $r_1\ne r_2$，但 $S(r_1)=S(r_2)$ | 不同位置产生相同分数，模型无法仅凭该分数区分位置 |
-| token 反转 | $S_1(0)>S_2(0)$，但某个 $r$ 上 $S_1(r)<S_2(r)$ | 两个 token 原本的相关性排序被距离反转 |
-| token 混叠 | $k_1\ne k_2$，但 $S_1(r)=S_2(r)$ | 不同 token 在某个位置得到相同分数 |
+| 位置反转 | $r_1<r_2$，但 $\mathrm{Attn}(r_1)<\mathrm{Attn}(r_2)$ | 同一个 token 放得更远，注意力分数反而更高，局部性偏置失效 |
+| 位置混叠 | $r_1\ne r_2$，但 $\mathrm{Attn}(r_1)=\mathrm{Attn}(r_2)$ | 不同位置产生相同分数，模型无法仅凭该分数区分位置 |
+| token 反转 | $\mathrm{Attn}_1(0)>\mathrm{Attn}_2(0)$，但某个 $r$ 上 $\mathrm{Attn}_1(r)<\mathrm{Attn}_2(r)$ | 两个 token 原本的相关性排序被距离反转 |
+| token 混叠 | $k_1\ne k_2$，但 $\mathrm{Attn}_1(r)=\mathrm{Attn}_2(r)$ | 不同 token 在某个位置得到相同分数 |
 
-随着上下文增长，四种失效都会变得更常见。论文证明，在其假设下，两种“反转”的概率下界最终都可趋近 $0.5$，即排序接近随机猜测；两种“混叠”还会受到 BF16 等有限数值精度的放大。
+当上下文 $L$ 进一步变长时，$\lambda(L)=\Theta(h\log_B L)$ 变大，更多项从低频常数被划进高频噪声：$\mu$ 稳定项变少，$\sigma^2$ 变大，论文证明了两种“反转”的概率下界最终都可趋近 $0.5$，即排序接近抛硬币猜测；两种“混叠”还会受到 BF16 等有限数值精度的放大。
 
 ### RoPE base 不是免费的午餐
 
-增大 base $B$ 会让各维度旋转得更慢。这有助于稳定不同 token 的相关性排序，因而缓解 token 反转和 token 混叠；但不同位置之间的相位差也会变小，从而加重位置反转和位置混叠。论文将其概括为：
-
-> 较大的 base 更有利于区分 token，却更不利于区分位置；较小的 base 则相反。
+增大 base $B$ 会让各维度旋转得更慢。这有助于稳定不同 token 的相关性排序，缓解 token 反转和 token 混叠；但不同位置之间的相位差也会变小，从而加重位置反转和位置混叠。较大的 base 更有利于区分 token，却更不利于区分位置；较小的 base 则相反。
 
 因此，位置插值、NTK scaling 或单纯增大 base 更像是在两类误差之间重新分配预算，而不是从根本上消除长上下文问题。
-
-### 实验观察与结论边界
-
-作者在 Llama 3.1-8B 的单个 attention head 上观察到了大量位置和 token 混叠；在一个要求读取列表第 $k$ 个元素的受控任务中，六个 RoPE 长上下文模型在数千 token 后都逐渐接近四选一的随机准确率。这说明**标称上下文长度不等于可靠的有效上下文长度**，多头、多层结构也未必能自动消除位置混淆。
-
-不过，这篇论文的结论需要放在其假设下理解：
-
-- 理论证明主要针对单个 attention head 的未归一化标量分数，并假设各旋转维度的幅度相对均匀。
-- 正态近似忽略了少量处于高、低频分界处的频率项。
-- “完全相等”的混叠与 BF16 等有限精度密切相关；使用更高精度会改变其发生阈值。
-- 多头、多层实验说明真实模型仍会出现位置混淆，但不能严格证明所有整模型错误都由上述单头机制直接造成。
-
-所以，更稳妥的理解不是“RoPE 完全无效”，而是：**RoPE 用周期旋转表达相对位置，这一优势也带来了长距离振荡和相位复用；当上下文足够长时，位置分辨率、token 相关性稳定性和可用长度之间存在结构性取舍。** 这也为部分层采用 RoPE、部分层采用 NoPE，或者引入新的位置机制提供了理论动机。
