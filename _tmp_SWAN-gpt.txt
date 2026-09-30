@@ -1,0 +1,1011 @@
+SWAN-GPT: An Efficient and Scalable Approach for
+Long-Context Language Modeling
+
+arXiv:2504.08719v1 [cs.CL] 11 Apr 2025
+
+Krishna C. Puvvada∗
+
+Faisal Ladhak∗
+
+Cheng-Ping Hsieh
+
+Shantanu Acharya
+
+Samuel Kriman
+
+Simeng Sun
+
+Santiago Akle Serrano
+
+Somshubra Majumdar
+Dima Rekesh
+
+Fei Jia
+
+Boris Ginsburg
+
+NVIDIA
+
+Abstract
+We present a decoder-only Transformer architecture that robustly generalizes to
+sequence lengths substantially longer than those seen during training. Our model,
+SWAN-GPT, interleaves layers without positional encodings (NoPE) and slidingwindow attention layers equipped with rotary positional encodings (SWA-RoPE).
+Experiments demonstrate strong performance on sequence lengths significantly
+longer than the training length without the need for additional long-context training. This robust length extrapolation is achieved through our novel architecture,
+enhanced by a straightforward dynamic scaling of attention scores during inference.
+In addition, SWAN-GPT is more computationally efficient than standard GPT
+architectures, resulting in cheaper training and higher throughput. Further, we
+demonstrate that existing pre-trained decoder-only models can be efficiently converted to the SWAN architecture with minimal continued training, enabling longer
+contexts. Overall, our work presents an effective approach for scaling language
+models to longer contexts in a robust and efficient manner.
+
+1
+
+Introduction
+
+Large Language Models based on standard decoder-only transformer architectures [6, 17, 42] struggle
+with context lengths beyond their training distribution. Current approaches to extending context
+length fall into two categories: specialized training on increasingly longer sequences [17, 42, 33, 7]
+or complex inference time modifications [1]. These approaches incur either increased computation
+cost or increased implementation complexity. We propose SWAN-GPT, a decoder-only transformer
+architecture that natively handles sequences substantially longer than seen during training without
+requiring additional long-context-specific training. By strategically interleaving global attention
+layers without positional encodings and local, sliding-window attention layers with rotary position
+encodings, combined with a dynamic attention scaling mechanism, SWAN-GPT achieves both
+remarkable length generalization and significant computational efficiency. This architecture not only
+maintains comparable performance to standard transformers on established LLM benchmarks, but
+also achieves robust extrapolation to sequences far beyond the training length, providing a more
+scalable and efficient solution to the long-context challenge.
+A central challenge in extending transformer context lengths is the handling of positional information.
+Transformers rely on positional encodings to track token order, but these encodings often become
+∗
+
+Equal contribution. Correspondence emails should be sent to: {kpuvvada, fladhak}@nvidia.com
+
+Preprint. Under review.
+
+unreliable when models process sequences longer than those seen during training. Among the various
+positional encoding schemes, Rotary Positional Encodings (RoPE) [36] have been widely adopted
+in modern language models due to effectiveness in capturing relative positions. However, RoPEbased models exhibit significant performance degradation when applied to sequences exceeding their
+training length. This degradation occurs because inter-token distances advance to ranges where the
+relative rotation angle is outside the trained distribution [27].
+To address this limitation, we explore two complementary approaches with distinct strengths and
+limitations. Sliding window attention with RoPE (SWA-RoPE) restricts every token’s attention
+to a fixed-size window of neighboring tokens. Because the distance between attended tokens is
+bounded, SWA-RoPE layers never operate at rotation angles outside their training range, making them
+inherently robust to arbitrary sequence lengths. However, this locality constraint limits their ability to
+capture long-range dependencies. Conversely, layers without positional encoding (NoPE) [20, 24]
+allow unrestricted attention across the entire context while omitting explicit positional information.
+Notably, autoregressive NoPE models can develop implicit positional awareness through the causal
+attention mask, achieving comparable perplexity to models with explicit positional embeddings [20].
+Despite this capability, pure NoPE models also exhibit poor robustness beyond their training length,
+with performance degrading rapidly due to the brittleness of the learned positional mechanism.
+Our key insight is that these approaches can complement each other through strategic integration.
+SWAN-GPT interleaves global attention layers without positional encodings (NoPE) and local slidingwindow attention layers with rotary positional encodings (SWA-RoPE). This hybrid design creates a
+synergistic effect: SWA-RoPE layers provide local positional structure, while NoPE layers integrate
+information across arbitrary distances. When interleaved, the NoPE layers develop more robust
+representations than they would in isolation, enabling the entire model to generalize beyond its
+training sequence length. Unlike standard RoPE-based transformers which experience catastrophic
+performance collapse outside their training context, SWAN maintains robust performance on extended
+sequences with only a straightforward rescaling of attention scores during inference.
+In Section 2.1, we provide evidence that failures in the implicit position prediction mechanism of
+NoPE models contribute to their performance degradation on longer sequences, and demonstrate
+how the interleaved SWA-RoPE layers stabilize this mechanism. Additionally, we show that existing
+transformer models can be efficiently adapted to the SWAN architecture through continued pretraining
+(CPT), offering a practical, cost-effective path to upgrading deployed models.
+Our contributions are as follows:
+1. A novel architecture (SWAN) that combines SWA-RoPE and NoPE layers to enable efficient
+length extrapolation without additional training, enhanced by a logarithmic attention scaling
+mechanism for inference.
+2. Mechanistic analysis explaining why this architecture produces robust length extrapolation,
+with evidence that NoPE layers develop more stable positional encodings when paired with
+SWA-RoPE layers.
+3. Empirical results demonstrating that SWAN maintains robust performance on sequences far
+exceeding its training length, while achieving comparable results to standard transformer
+architectures on established LLM benchmarks.
+4. A practical method for adapting existing transformer models to the SWAN architecture
+through continued pre-training (CPT), providing a cost-effective upgrade path for deployed
+models.
+
+2
+
+The SWAN-GPT architecture
+
+SWAN-GPT is a decoder-only Transformer architecture that addresses the challenge of length extrapolation by interleaving two types of attention mechanisms: global attention layers without positional
+encodings (NoPE) and local sliding-window attention layers with rotary positional encodings (SWARoPE). This hybrid design leverages the complementary strengths of both approaches to achieve
+robust length extrapolation capabilities, without specialized long-context training.
+As detailed in our ablation studies (Appendix A), we explored multiple configurations for interleaving
+these layer types. Our experiments revealed that beginning with a global NoPE layer followed by
+2
+
+Figure 1: Mean negative log likelihood by token position for GPT with rotary positional encodings
+(RoPE GPT, blue), a GPT with no positional encodings (NoPE, orange), a Swan model (red), and
+a model conposed only of sliding window attention layers (SWA, green). Both RoPE GPT and
+NoPE models struggle beyond training sequence length (1024). SWA model doesn’t experience such
+catastrophic failure due to its limited context. Swan model behaves like a SWA model without the
+limitation of SWA model due to its global NoPE layers.
+
+three consecutive sliding-window layers, repeating this pattern throughout the network, demonstrated
+superior performance on long-context tasks. This configuration achieves exceptional NIAH scores at
+context lengths 16 times longer than the training length, and maintains robust performance even at
+32 times the training length when combined with appropriate attention scaling (subsection 2.2). We
+adopt this interleaving pattern for all experiments presented in the main paper.
+The global NoPE layers permit unrestricted attention across the entire context, enabling the model
+to capture long-range dependencies. Meanwhile, the local SWA-RoPE layers operate with a fixed
+window size of 512 tokens, providing consistent positional information within a bounded context.
+This architecture creates a complementary system where SWA-RoPE layers enforce local positional
+structure while NoPE layers integrate information across arbitrary distances. The key insight is
+that when these mechanisms are interleaved, the NoPE layers develop more robust position-aware
+representations than they would in isolation, enabling the entire model to generalize effectively
+beyond training sequence lengths.
+Figure 1 demonstrates this capability by comparing four models trained on sequences of up to 1024
+tokens: a standard GPT model with RoPE, one with no positional encodings (NoPE), one with only
+sliding window attention (SWA) and one using our architecture (SWAN). We evaluate the model’s
+predictions on 1280 validation sequences of length 4096. The plot shows the negative log likelihood
+at each sequence position averaged over all validation sequences, with lower values indicating better
+performance. Both the RoPE and NoPE models experience significant performance degradation
+beyond their training length , with negative log likelihood increasing sharply beyond 1024 tokens. In
+contrast, both the SWAN and SWA architectures maintain consistent predictive quality throughout
+the entire 4096-token range, demonstrating their robust length extrapolation capabilities. Notably,
+SWAN maintains this performance while retaining the ability to capture long-range dependencies
+that the purely local SWA approach cannot (see Appendix A).
+In the following sections, we examine why this architecture works so effectively for length extrapolation, providing mechanistic analysis and empirical evidence of its robust performance.
+3
+
+Figure 2: Predictions of token indices by 8 different probes. Each probe is trained with tokens from
+one model and different context regions (demarcated by dashed lines). Probes on NoPE models (blue)
+extrapolate correctly up until the maximum NoPE training length (solid line). Probes on SWAN (red)
+are not predictive of token indices.
+
+2.1
+
+Stabilizing Implicit Position Encodings for Robust Length Extrapolation
+
+A key question in our investigation is understanding why the NoPE layers within our SWAN
+architecture demonstrate substantially more robust length extrapolation capabilities compared to
+identical layers within a model built purely of NoPE layers.
+Despite the absence of explicit positional encoding, prior work has demonstrated that trained NoPE
+models implicitly learn to predict token positions after processing through a few layers [10]. This
+implicit position embedding emerges from the autoregressive nature of decoder-only models, where
+tokens later in the sequence have access to more context than earlier tokens, creating distinct
+distributions at different positions. These distributional differences enable NoPE models to infer
+positional information and incorporate it into their predictions [10].
+However, standard NoPE models exhibit poor robustness to sequences longer than their training
+length, with performance degrading rapidly beyond the training boundary. We hypothesize that this
+limitation stems from a failure in their implicit position prediction mechanism when extrapolating to
+longer contexts. We further hypothesize that in our SWAN architecture, the interleaved SWA-RoPE
+layers relieve the NoPE layers from needing to develop the brittle position encodings seen in pure
+NoPE models, resulting in more robust processing of longer sequences.
+To test these hypotheses, we conducted experiments with both pure NoPE and SWAN models
+trained on sequences of 1024 tokens and evaluate them on sequences of 2048 tokens. We employed
+two complementary analysis techniques: (1) position prediction probes to quantitatively measure
+positional information in model representations, and (2) attention pattern visualization to examine
+how attention mechanisms behave when processing sequences beyond training length.
+2.1.1
+
+Position Prediction Probes
+
+To provide evidence for our hypothesis, we trained probes that predict token positions from token
+embeddings. We evaluated these probes on held-out tokens from positions both within and beyond
+the models’ training range. Figure 2 shows predictions from eight different probes, each trained with
+tokens sampled from ranges demarcated by dashed lines. Each of the four subplots shows results from
+two probes - one trained on NoPE model embeddings (blue) and one on SWAN model embeddings
+(red) - with each probe trained on tokens from different context regions demarcated by dashed lines.
+4
+
+Figure 3: Attention maps for 6th layer of NoPE model. Averaged over all heads and all validation
+records (left). Cross section for sequence of length 512, 1024 (limit of model training range) and
+1536 in length extrapolation regime. Attention pattern of leading 256 tokens differ for sequences
+within and beyond training range.
+
+For pure NoPE models (blue points), the probe’s predictions extrapolate well up to the boundary
+of the model’s training range (solid black line). However, probes cease to be predictive beyond the
+training boundary. Furthermore, probes trained in different sub-regions of the range all fail at the
+same location. This phenomenon is consistent with the notion that the position prediction mechanism
+in NoPE models fails beyond the model’s training range. In contrast, the SWAN model (red points)
+exhibits fundamentally different behavior. Position probes trained on SWAN’s NoPE layers show
+little positional information across all sequence positions, suggesting these layers do not develop the
+same brittle position encoding mechanism seen in pure NoPE models. This supports our hypothesis
+that the interleaved SWA-RoPE layers stabilize the NoPE layers by relieving them from the need to
+track absolute positions, instead allowing them to focus on integrating information across arbitrary
+distances while the SWA-RoPE layers handle local positional structure.
+
+2.1.2
+
+Attention Pattern Analysis
+
+To further investigate this phenomenon we examine the average attention values at different token
+positions for different sequence lengths. We average the probability scores (attention scores post
+soft-max) over all heads and over a set of validation batches. We randomize the token order in order
+to remove the effect of the correlation structure present in natural language.
+Figure 3 displays the average attention maps of the 6th layer in the NoPE model. The visualization
+reveals that for sequences longer than the training length (green) the model places roughly the same
+amount of attention to all of the 256 tokens preceding the target token. Whereas for sequences within
+the training range (orange and blue) it preferentially attends to the tokens closest to the target token.
+A model that extrapolates to longer sequences should maintain a similar attention pattern for tokens
+close to the target token, regardless of sequence length.
+In contrast, Figure 4 displays the average attention maps of the 20th layer (the 6th NoPE layer) of our
+SWAN model. Unlike the pure NoPE model, SWAN’s attention maps exhibit consistent attention
+patterns for sequences with lengths within and beyond the training regime.
+These analyses support our hypothesis that interleaving SWA-RoPE layers fundamentally alters how
+NoPE layers process positional information. The use of positional embeddings in the SWA-RoPE
+layers appears to stabilize the representations in the NoPE layers, making them more robust to
+sequence length extrapolation. This suggests that SWAN’s superior length extrapolation capability
+stems from the emergent properties of the interleaved architecture.
+5
+
+Figure 4: Attention maps for 20th layer of our SWAN model (6th NoPE layer). Averaged over all
+heads and all validation records (left). Cross section for sequence of length 512, 1024 (limit of model
+training range) and 1536 in length extrapolation regime. Attention pattern of leading 256 tokens show
+consistent decay patterns for sequences with length within and beyond training range.
+
+2.2
+
+Dynamic Attention Scaling for Extended Context Processing
+
+While our architecture demonstrates inherent sequence length extrapolation, we find that further
+performance improvements can be achieved through proper scaling of attention logits during inference.
+This scaling is particularly important for the global NoPE layers, which must effectively integrate
+information across arbitrary distances as sequence length increases.
+Prior work has shown that RoPE-based models improve their performance on extended context
+lengths when the temperature of the attention logits is properly adjusted [33]. The SWA-RoPE layers
+in our SWAN architecture inherently handle longer sequences due to their local attention window.
+However, we hypothesize that the global attention NoPE layers may still require scaling to maintain
+performance at extended lengths.
+For this analysis, we sampled 200 documents from the model’s training distribution (each with at
+least 32K tokens) to maintain consistent semantic distribution while extending context length beyond
+
+Figure 5: Estimates of optimal scaling factors (black) comparing the fit of our logarithmic scaling
+function vs. YaRN scaling. We find that YaRN scaling doesn’t work as well for NoPE layers.
+6
+
+Figure 6: Perplexity on held-out documents, with (green) and without (blue) logarithmic scaling
+applied to attention scores.
+the original 1K tokens used during training. We partitioned each 32K-token context into 128-token
+windows and estimated a single optimal scaling factor per window by minimizing its perplexity over
+all 200 documents.
+Figure 5 shows the empirically determined optimal scaling factors (black dots) across different
+positions in the 32K context. We find that a logarithmic scaling function loga (a + n) (green line)
+provides an excellent fit to the empirical data. This function captures two key properties we observe –
+a natural growth rate that matches the data’s progression, and a base scaling factor that never falls
+below 1.0, which is important for maintaining model stability at early positions. Interestingly, while
+prior work found that the YaRN scaling function [33] works well for RoPE-based models, we observe
+that it (dashed pink line) fits poorly for the NoPE layers in our SWAN architecture, particularly in
+early positions where it significantly under-estimates the required scaling.
+Having identified a suitable logarithmic scaling function, we next investigate whether applying this
+scaling would improve model performance on unseen data. To validate our approach we use held-out
+documents from the PG19 dataset. We compute the average perplexity for each 128 token window
+in documents with 32K tokens. Figure 6 plots the perplexity at each location within the 32K token
+context, with and without our scaling function applied. Without scaling (blue), we observe a clear
+degradation in model performance on longer contexts. In contrast, our scaling (green points) allows
+the model to maintain better performance as measured by a lower and more stable perplexity value
+for the entire context length up to contexts 32 times longer than the training length (1K tokens). This
+improved performance with scaling is further validated by our NIAH evaluation results in Table 5 in
+Appendix A, where we demonstrate that scaling improves NIAH scores from 0.171 to 0.957 at 8K
+context length and from 0.005 to 0.907 at 16K context length.
+
+3
+
+Results
+
+In the previous section, we introduced the SWAN architecture and motivated its robust length
+extrapolation via mechanistic analysis and empirical experiments. Here, we evaluate the effectiveness
+of the proposed architecture compared to standard RoPE-based transformer LLMs. Our goal is to
+demonstrate that SWAN models can maintain similar performance on standard LLM benchmarks
+while achieving substantially improved length extrapolation capabilities beyond the training context
+length.
+We trained both RoPE GPT and SWAN models with 1B parameters from scratch using 1T tokens at
+8K sequence length with a token batch size of 6M. The SWAN model followed 1:3 global:local ratio,
+with sliding window attention layers using a 512-token window size. We evaluated both models on
+7
+
+Dataset
+
+ARC-E
+
+ARC-C
+
+H
+
+W
+
+RACE
+
+PIQA
+
+SIQA
+
+OBQA
+
+Avg
+
+RoPE
+SWAN
+
+65.36
+69.40
+
+38.23
+41.04
+
+58.35
+59.76
+
+57.93
+59.75
+
+35.02
+35.69
+
+73.12
+73.99
+
+32.91
+33.73
+
+35.20
+37.80
+
+49.5
+51.4
+
+Table 1: Results for 1B models trained on 1T tokens. The models were evaluated on ARC-Easy,
+ARC-Challenge, Hellaswag, Winogrande, RACE, PIQA, Social IQA, and Openbook QA. The SWAN
+model shows comparable or better performance across all benchmarks.
+Model
+
+MTL
+
+4K
+
+8K
+
+16K
+
+32K
+
+64K
+
+128K
+
+256k
+
+RoPE GPT-1B
+Swan GPT-1B
+
+8K
+8K
+
+70.6
+68.1
+
+53.5
+52.4
+
+NA
+45.8
+
+NA
+36.9
+
+NA
+30.6
+
+NA
+24.4
+
+NA
+14.9
+
+Table 2: Comparing long-context performance of SWAN-GPT with standard RoPE-based models on
+the Ruler benchmark. MTL=Maximum training length. The SWAN model maintains measurable
+performance even at 32× its training length, while the RoPE model fails completely beyond its
+training length.
+standard LLM benchmarks using the LM Evaluation Harness Library [13]. As shown in Table 1, the
+SWAN model performs comparably or better than the RoPE model across all benchmarks, achieving
+an average 51.4% vs. 49.5%.
+The primary advantage of the SWAN architecture becomes evident when evaluating its performance
+on sequences significantly longer than those seen during training. Table 2 shows the results for both
+models on the Ruler benchmark [22] across various context lengths. While both models get similar
+performance for sequence lengths within their training distribution (≤ 8K), their behaviors diverge
+dramatically beyond this point. The standard RoPE based model fails completely when presented
+with sequences exceeding its training length, showing catastrophic degradation. In contrast, the
+SWAN model exhibits a much more graceful degradation pattern even at sequences substantially
+longer than the training length.
+3.1
+
+Efficient Adaptation of Pre-trained Models to SWAN Architecture
+
+While training models from scratch demonstrates that our architecture achieves comparable results
+to RoPE-based transformers on standard benchmarks while offering superior length extrapolation,
+adapting existing pre-trained models would significantly enhance the practical utility of our approach.
+Prior research has established that most of the knowledge in transformer models is encoded in the feedforward layers, with attention mechanisms primarily serving to route information [15]. Since SWAN
+primarily modifies the attention computation while preserving feed-forward layers, we hypothesize
+that existing pre-trained models can be efficiently converted to the SWAN architecture without losing
+their accumulated knowledge. This adaptation capability would make our approach immediately
+applicable to the large ecosystem of existing transformer models, offering a cost-effective path to
+enhanced length extrapolation without full retraining.
+We start with an 8B parameter RoPE GPT model that was pre-trained for 15T tokens context length
+of 8K tokens [34]. We converted this model to the SWAN architecture by initializing all weights
+from the pre-trained RoPE GPT model and modifying the attention layers to implement our 1:3
+global-local pattern as established in Section 2. This process involved removing positional encodings
+from global attention layers, configuring sliding-window attention with a window size of 512 tokens
+in local layers. Following initialization, we performed continued pre-training (CPT) for an additional
+315B tokens (approximately 2% of the original pre-training compute) at an extended context length
+of 32K tokens. The process utilized the same data distribution as the original model, with sequence
+lengths extended to 32K through concatenation of shorter examples. For the final 15B tokens, we
+applied Fill-in-Middle augmentation [2] to further enhance the model’s contextual understanding.
+Post-training for RoPE GPT model was conducted in two stages, with the first stage focusing on math
+and code followed by a general SFT in the second stage. Post-training for Swan followed similar
+procedure, but with the sequence length extended to 32K through concatenation of shorter examples.
+To enhance long-context capabilities, we augmented the SFT training data with a variety of tasks
+8
+
+Category
+
+Benchmark
+
+RoPE GPT
+
+SWAN GPT
+
+Math
+
+GSM8k
+MATH500
+
+87.7
+70.4
+
+87.7
+68.4
+
+Code
+
+MBPP
+MBPP+
+HumanEval
+HumanEval+
+
+76.2
+66.1
+74.4
+68.3
+
+75.7
+65.3
+75.0
+68.3
+
+General
+
+MT-Bench
+MMLU (generative)
+IFEval (Prompt)
+IFEval (Instruction)
+
+7.35
+68.0
+63.0
+72.7
+
+7.43
+65.4
+62.7
+72.2
+
+Tool Use
+
+BFCL v2 Live
+
+68.7
+
+68.9
+
+Long Context
+
+RULER (128k context)
+
+NA
+
+77.8
+
+Average (w/o MT-Bench, RULER)
+
+71.55
+
+70.95
+
+Table 3: Comparison of RoPE GPT vs. Swan when adapting a pre-trained RoPE GPT model to
+SWAN model. SWAN maintains comparable performance on short benchmarks (on average) while
+attaining long-context capabilities.
+Model
+
+MTL
+
+4K
+
+8K
+
+16K
+
+32K
+
+64K
+
+128K
+
+256k
+
+Llama3.1-8B
+Qwen2.5-7B-Instruct-1M
+Qwen2.5-7B-Instruct
+SwanGPT-8B
+
+128K
+256K
+32K
+32K
+
+95.5
+96.8
+96.7
+93.8
+
+93.8
+95.3
+95.1
+90.8
+
+91.6
+93.0
+93.7
+88.1
+
+87.4
+91.1
+89.4
+84.4
+
+84.7
+90.4
+82.3
+80.5
+
+77.0
+84.4
+55.1
+77.8
+
+NA
+75.3
+NA
+73.2
+
+Table 4: Comparing Long-context performance of SWAN with other models. MTL=Maximum
+training length. RoPE based models degrade fast with increase in sequence length where as SWAN
+exhibits much more graceful dropoff.
+
+designed to exercise the model’s ability to reason over extended contexts. These included questions
+referring to previous turns in concatenated examples and synthetic tasks such as filling in the middle,
+recalling portions of context based on keywords, tracing linked lists, executing basic SQL queries on
+made-up table data, and multi-hop reasoning [9] tasks modified to 32K sequence length.
+Table 3 compares our adapted SWAN GPT-8B model with the original RoPE GPT-8B model across
+standard LLM benchmarks. The results demonstrate that the SWAN adaptation maintains comparable
+performance across a diverse set of tasks, including mathematical reasoning (GSM8k, MATH500),
+coding (MBPP, HumanEval), and general language understanding (MMLU, IFEval, MT-Bench).
+Remarkably, we observe only a minimal decrease in average performance, from 71.55% to 70.95%,
+confirming our hypothesis that substantial architectural modifications to the attention mechanism
+can be implemented with only a brief adaptation phase while preserving the model’s fundamental
+capabilities.
+The primary advantage of converting to the SWAN architecture is the substantial improvement in
+length extrapolation capabilities. In Table 4, we compare our adapted SWAN GPT-8B model against
+state-of-the-art models of similar size on the RULER benchmark [22] across various context lengths.
+Despite being trained with a maximum context length of only 32K, our SWAN GPT-8B model
+demonstrates remarkable length extrapolation capabilities. At 64K tokens (2× the training length), it
+achieves a RULER score of 80.5; at 128K tokens (4× the training length), it maintains a score of 77.8,
+and even at 256K tokens (8× the training length), it achieves a respectable score of 73.2.
+This robust extrapolation capability is particularly notable compared to the performance dropoff
+patterns observed in other models. For example, the Qwen2.5-7B-Instruct (128K) model, which
+was also trained with a maximum context length of 32K, shows a large drop from 82.3 at 64K
+tokens to 55.1 at 128K tokens. In contrast, SWAN model exhibits a much more gradual degradation,
+maintaining 77.8 at 128K sequence length. Even when compared to models specifically trained on
+9
+
+longer contexts, such as Llama3.1-8B (trained up to 128K) and Qwen2.5-7B-Instruct (1M) (trained
+up to 256K), SWAN remains competitive. The SWAN model’s score of 77.8 at 128K tokens is
+comparable to Llama3.1-8B’s 77.0, despite Llama3.1-8B being explicitly trained at this context
+length and our model being trained on contexts only one-fourth as long. Similarly, our SWAN model
+achieves a comparable RULER score to Qwen2.5-7B-Instruc (1M) at 256K context length, despite
+the latter being explicitly trained on sequences eight times longer than our maximum training length.
+These results demonstrate that the SWAN architecture enables efficient adaptation of existing pretrained models to handle significantly longer contexts than their original training length, without
+sacrificing their performance on standard benchmarks. This provides a practical, compute-efficient
+path for upgrading deployed models to handle longer contexts without the need for full retraining.
+
+4
+
+Related Work
+
+Extending the context length of LLMs to hundreds of thousands or millions of tokens poses significant challenges across multiple dimensions. Architecturally, standard Transformer models face
+limitations due to positional encoding schemes like Rotary Positional Embeddings (RoPE) that break
+down beyond their training distribution [36, 27] and from the quadratic computational and memory
+complexity of self-attention mechanisms, particularly as Key-Value (KV) cache sizes grow with
+increasing sequence length [25, 12, 26]. From an infrastructure perspective, longer contexts strain
+GPU memory capacity and bandwidth, often reducing throughput [31, 16]. Furthermore, acquiring
+high-quality long-context training data remains challenging [28, 14], and evaluating performance
+on extended contexts requires more robust benchmarks [22, 26]. Our work, SWAN-GPT, primarily
+addresses the architectural challenges by introducing an innovative architecture that enables inherent
+length extrapolation and computational efficiency.
+Several approaches aim to extend context length purely at inference time, avoiding costly retraining or finetuning. One line of work focuses on adapting positional encodings. For RoPE-based
+models, techniques like NTK-aware scaling [5, 4] adjust the RoPE base frequency, while Positional
+Interpolation (PI) [7] linearly downscales position indices. However, these methods can degrade
+performance or require careful parameter tuning [1]. More recent training-free methods directly
+modify the attention mechanism. ReRoPE [35] constrains relative positions, SelfExtend [23] maps
+unseen large relative positions to seen ones using a floor operation combined with a local attention
+window, and Dual Chunk Attention (DCA) [1] decomposes attention into intra-chunk and inter-chunk
+components. Another line of work leverages attention sinks or windowing, such as StreamingLLM
+[40] and LM-Infinite [19], which retain initial and recent tokens based on the observation that these
+receive high attention. Models without explicit positional encodings (NoPE) learn implicit positional
+information [20] but also exhibit poor extrapolation beyond their training length [24, 39].
+A common strategy involves adapting pre-trained models or modifying the training process. Techniques like PI [7] and YaRN [33] rescale RoPE embeddings but often achieve optimal performance
+only after continued pre-training (CPT) or finetuning on longer sequences. CPT on progressively
+longer sequences [41] is effective but computationally prohibitive for very large models or extremely
+long contexts. To mitigate this cost, efficient finetuning methods like LongLoRA [8] apply parameterefficient tuning techniques specifically for long-context adaptation. Recent state-of-the-art LLMs
+often achieve long-context capabilities through pre-training and post-training that explicitly incorporates varied sequence lengths and curated long-context data. Models like the Llama 3 series
+[17, 29, 30] and the Qwen2.5 model [42], exemplify this approach, leveraging vast computational
+resources and sophisticated data strategies to directly train for long-context understanding.
+Beyond positional encoding limitations, the quadratic complexity of self-attention and the associated
+KV cache size pose major efficiency bottlenecks for long contexts [26]. Architectural innovations
+aim to reduce this complexity. Sparse attention mechanisms, used in models like Longformer [3] and
+BigBird [44], limit attention to predefined patterns (e.g., local windows plus some global tokens).
+Alternative architectures like State Space Models (SSMs), such as Mamba [18], and linear RNN
+variants like RWKV [32], achieve linear or near-linear complexity in sequence length but require
+training from scratch. SWAN-GPT improves efficiency partly through its architecture: the SWARoPE layers employ local attention, which is inherently more efficient than global attention. While
+the NoPE layers perform global attention, techniques like Multi-head Latent Attention (MLA) [11]
+can be applied orthogonally to reduce the KV cache size for these layers. Additionally, the various
+10
+
+KV cache optimization techniques – including token dropping/eviction [46, 40], merging (e.g., via
+activation beacons [45]), compression, and quantization [21, 26] – can complement architectural
+approaches like SWAN-GPT.
+Notably, the Gemma family of models [37, 38] also utilizes a hybrid of sliding window and global
+attention, but retains RoPE positional embeddings in all layers. This contrasts with SWAN-GPT’s
+architecture, where global layers deliberately omit explicit positional encodings (NoPE), a distinction
+intended to achieve superior length extrapolation. A Concurrent work [43] also explores interleaving
+SWA-RoPE and global NoPE layers, similar to SWAN-GPT’s structure, but lacks the dynamic
+attention scaling mechanism proposed in SWAN-GPT, which is a crucial element to maintain the
+performance of global NoPE layers at extended lengths. Furthermore, our work provides mechanistic
+analyses revealing what causes length extrapolation issues in NoPE layers and how interleaving
+SWA-RoPE layers addresses this problem. We further demonstrate that existing pre-trained models
+can be efficiently converted to SWAN architecture with minimal CPT.
+
+5
+
+Conclusion
+
+We introduced SWAN-GPT, a decoder-only transformer architecture that achieves robust length
+extrapolation without specialized long-context training. By interleaving NoPE and SWA-RoPE layers,
+along with a dynamic attention scaling, our approach maintains consistent performance on sequences
+substantially longer than those seen during training. Our mechanistic analysis revealed that this hybrid
+architecture creates a synergistic effect, where SWA-RoPE layers provide stable positional grounding
+that relieves NoPE layers from developing brittle positional representations. Beyond architecture
+innovation, we demonstrated that existing pre-trained models can be efficiently adapted to the SWAN
+architecture through continued pre-training, requiring only about 2% of the original training compute.
+This offers a practical, cost-effective path for upgrading deployed models to handle significantly
+longer contexts without full retraining or sacrificing performance on standard benchmarks. This
+approach represents a significant shift away from the current paradigm of training models directly on
+increasingly longer sequences, offering a more computationally efficient path toward long-context
+language modeling. By enabling robust length extrapolation through architectural innovation rather
+than extensive training, SWAN-GPT provides both immediate practical benefits for deployed models
+and a promising direction for future research into efficient context extension.
+
+References
+[1] C. An, F. Huang, J. Zhang, S. Gong, X. Qiu, C. Zhou, and L. Kong. Training-free long-context
+scaling of large language models, 2024.
+[2] M. Bavarian, H. Jun, N. Tezak, J. Schulman, C. McLeavey, J. Tworek, and M. Chen. Efficient
+training of language models to fill in the middle. arXiv:2207.14255, 2022.
+[3] I. Beltagy, M. E. Peters, and A. Cohan. Longformer: The long-document Transformer. arXiv:
+2004.05150, 2020.
+[4] bloc97. Dynamically scaled rope further increases performance of long context llama with zero
+fine-tuning. Reddit post, July 2023.
+[5] bloc97. Ntk-aware scaled rope allows llama models to have extended (8k+) context size without
+any fine-tuning and minimal perplexity degradation. Reddit post, June 2023.
+[6] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal, A. Neelakantan,
+P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. Henighan, R. Child,
+A. Ramesh, D. M. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray,
+B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei.
+Language models are few-shot learners, 2020.
+[7] S. Chen, S. Wong, L. Chen, and Y. Tian. Extending context window of large language models
+via positional interpolation. arXiv preprint arXiv:2306.15595, 2023.
+[8] Y. Chen, S. Qian, H. Tang, X. Lai, Z. Liu, S. Han, and J. Jia. Longlora: Efficient fine-tuning of
+long-context large language models, 2024.
+[9] Z. Chen, Q. Chen, L. Qin, Q. Guo, H. Lv, Y. Zou, W. Che, H. Yan, K. Chen, and D. Lin. What
+are the essential factors in crafting effective long context multi-hop instruction datasets? insights
+and best practices. arXiv:2409.01893, 2024.
+11
+
+[10] T.-C. Chi, T.-H. Fan, L.-W. Chen, A. I. Rudnicky, and P. J. Ramadge. Latent positional
+information is in the self-attention variance of Transformer language models without positional
+embeddings. arXiv: 2305.13571, 2023.
+[11] DeepSeek-AI, A. Liu, and et.al. Deepseek-v2: A strong, economical, and efficient mixture-ofexperts language model, 2024.
+[12] Y. Fu. Challenges in deploying long-context transformers: A theoretical peak performance
+analysis, 2024.
+[13] L. Gao, J. Tow, B. Abbasi, S. Biderman, S. Black, A. DiPofi, C. Foster, L. Golding, J. Hsu,
+A. Le Noac’h, H. Li, K. McDonell, N. Muennighoff, C. Ociepa, J. Phang, L. Reynolds,
+H. Schoelkopf, A. Skowron, L. Sutawika, E. Tang, A. Thite, B. Wang, K. Wang, and A. Zou. A
+framework for few-shot language model evaluation, 2024.
+[14] T. Gao, A. Wettig, H. Yen, and D. Chen. How to train long-context language models (effectively),
+2025.
+[15] M. Geva, R. Schuster, J. Berant, and O. Levy. Transformer feed-forward layers are key-value
+memories. In EMNLP, 2021.
+[16] A. Gholami, Z. Yao, S. Kim, C. Hooper, M. W. Mahoney, and K. Keutzer. Ai and memory wall,
+2024.
+[17] A. Grattafiori, A. Dubey, A. Jauhri, A. Pandey, A. Kadian, A. Al-Dahle, A. Letman, A. Mathur,
+A. Schelten, A. Vaughan, et al. The llama 3 herd of models. arXiv:2407.21783, 2024.
+[18] A. Gu and T. Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv:
+2312.00752, 2024.
+[19] C. Han, Q. Wang, H. Peng, W. Xiong, Y. Chen, H. Ji, and S. Wang. Lm-infinite: Zero-shot
+extreme length generalization for large language models, 2024.
+[20] A. Haviv, O. Ram, O. Press, P. Izsak, and O. Levy. Transformer language models without
+positional encodings still learn positional information. In EMNLP, 2022.
+[21] C. Hooper, S. Kim, H. Mohammadzadeh, M. W. Mahoney, Y. S. Shao, K. Keutzer, and A. Gholami. Kvquant: Towards 10 million context length llm inference with kv cache quantization,
+2024.
+[22] C.-P. Hsieh, S. Sun, S. Kriman, S. Acharya, D. Rekesh, F. Jia, and B. Ginsburg. RULER: What’s
+the real context size of your long-context language models? In COLM, 2024.
+[23] H. Jin, X. Han, J. Yang, Z. Jiang, Z. Liu, C.-Y. Chang, H. Chen, and X. Hu. Llm maybe longlm:
+Self-extend llm context window without tuning, 2024.
+[24] A. Kazemnejad, I. Padhi, K. Natesan Ramamurthy, P. Das, and S. Reddy. The impact of
+positional encoding on length generalization in Transformers. NeurIPS, 2023.
+[25] W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. E. Gonzalez, H. Zhang, and
+I. Stoica. Efficient memory management for large language model serving with pagedattention,
+2023.
+[26] X. Liu, R. Li, M. Huang, Z. Liu, Y. Song, Q. Guo, S. He, Q. Wang, L. Li, Q. Liu, Y. Zhou,
+X. Huang, and X. Qiu. Thus spake long-context large language model. arXiv:2502.17129,
+2025.
+[27] X. Liu, H. Yan, S. Zhang, C. An, X. Qiu, and D. Lin. Scaling laws of rope-based extrapolation.
+arXiv:2310.05209, 2024.
+[28] K. Lv, X. Liu, Q. Guo, H. Yan, C. He, X. Qiu, and D. Lin. Longwanjuan: Towards systematic
+measurement for long text quality, 2024.
+[29] Meta AI. Introducing meta llama 3: The most capable openly available llm to date. Blog Post,
+April 2024.
+[30] Meta AI. Introducing meta llama 3.1: The most capable and versatile openly available models
+to date. Blog Post, July 2024.
+[31] D. Patel and D. Nishball. Nvidia blackwell perf tco analysis – b100 vs b200 vs gb200 nvl72.
+Semianalysis Blog Post, April 2024.
+12
+
+[32] B. Peng, E. Alcaide, Q. Anthony, A. Albalak, S. Arcadinho, S. Biderman, H. Cao, X. Cheng,
+M. Chung, M. Grella, K. K. GV, X. He, H. Hou, J. Lin, P. Kazienko, J. Kocon, J. Kong,
+B. Koptyra, H. Lau, K. S. I. Mantri, F. Mom, A. Saito, G. Song, X. Tang, B. Wang, J. S. Wind,
+S. Wozniak, R. Zhang, Z. Zhang, Q. Zhao, P. Zhou, Q. Zhou, J. Zhu, and R.-J. Zhu. Rwkv:
+Reinventing rnns for the transformer era, 2023.
+[33] B. Peng, J. Quesnelle, H. Fan, and E. Shippole. Yarn: Efficient context window extension of
+large language models. arXiv:2309.00071, 2023.
+[34] D. Su, K. Kong, Y. Lin, J. Jennings, B. Norick, M. Kliegl, M. Patwary, M. Shoeybi, and
+B. Catanzaro. Nemotron-CC: Transforming Common Crawl into a refined long-horizon
+pretraining dataset. arXiv:2412.02595, 2024.
+[35] J. Su. Rectified rotary position embeddings. https://github.com/bojone/rerope, 2023.
+[36] J. Su, Y. Lu, S. Pan, A. Murtadha, B. Wen, and Y. Liu. RoFormer: Enhanced Transformer with
+Rotary Position Embedding. arXiv:2104.09864, 2023.
+[37] G. Team and et al. Gemma: Open models based on Gemini research and technology. arXiv:
+2403.08295, 2024.
+[38] G. Team and et al. Gemma 3 technical report. arXiv: 2503.19786, 2025.
+[39] J. Wang, T. Ji, Y. Wu, H. Yan, T. Gui, Q. Zhang, X. Huang, and X. Wang. Length generalization
+of causal transformers without position encoding, 2024.
+[40] G. Xiao, Y. Tian, B. Chen, S. Han, and M. Lewis. Efficient streaming language models with
+attention sinks. In The Twelfth International Conference on Learning Representations, 2024.
+[41] W. Xiong, J. Liu, I. Molybog, H. Zhang, P. Bhargava, R. Hou, L. Martin, R. Rungta, K. A.
+Sankararaman, B. Oguz, M. Khabsa, H. Fang, Y. Mehdad, S. Narang, K. Malik, A. Fan,
+S. Bhosale, S. Edunov, M. Lewis, S. Wang, and H. Ma. Effective long-context scaling of
+foundation models, 2023.
+[42] A. Yang, B. Yu, C. Li, D. Liu, F. Huang, H. Huang, J. Jiang, J. Tu, J. Zhang, J. Zhou, et al.
+Qwen2. 5-1m technical report. arXiv:2501.15383, 2025.
+[43] B. Yang, B. Venkitesh, D. Talupuru, H. Lin, D. Cairuz, P. Blunsom, and A. Locatelli. Rope to
+nope and back again: A new hybrid attention strategy, 2025.
+[44] M. Zaheer, G. Guruganesh, A. Dubey, J. Ainslie, C. Alberti, S. Ontanon, P. Pham, A. Ravula,
+Q. Wang, L. Yang, and A. Ahmed. Big bird: Transformers for longer sequences. arXiv:
+2007.14062, 2021.
+[45] P. Zhang, Z. Liu, S. Xiao, N. Shao, Q. Ye, and Z. Dou. Long context compression with activation
+beacon, 2024.
+[46] Z. Zhang, Y. Sheng, T. Zhou, T. Chen, L. Zheng, R. Cai, Z. Song, Y. Tian, C. Ré, C. Barrett,
+Z. Wang, and B. Chen. H2 o: Heavy-hitter oracle for efficient generative inference of large
+language models, 2023.
+
+13
+
+A
+
+Ablations
+Model
+
+512
+
+1k
+
+2k
+
+4k
+
+8k
+
+16k
+
+32k
+
+local only
+global only (RoPE)
+global only (NoPE)
+global_start (no scale)
+
+1.000
+1.000
+1.000
+1.000
+
+0.601
+0.985
+1.000
+1.000
+
+0.285
+0.000
+0.000
+0.983
+
+0.127
+0.000
+0.000
+0.820
+
+0.057
+0.000
+0.000
+0.171
+
+0.022
+0.000
+0.000
+0.005
+
+0.010
+0.000
+0.000
+0.003
+
+global_start
+local_start
+all_global_first
+all_local_first
+
+1.000
+1.000
+1.000
+1.000
+
+1.000
+1.000
+0.599
+1.000
+
+0.999
+0.999
+0.316
+0.993
+
+0.998
+0.895
+0.113
+0.564
+
+0.957
+0.808
+0.044
+0.183
+
+0.907
+0.725
+0.017
+0.057
+
+0.702
+0.530
+0.010
+0.027
+
+Table 5: NIAH scores across different context lengths for various SWAN configurations.
+To investigate the impact of different hybrid attention configurations on length extrapolation capabilities, we conducted an ablation study using models with 0.5B parameters. Each model consisted of 24
+transformer decoder layers, with 16 attention heads per layer, 1024 hidden units, and a feedforward
+dimension of 4096. We trained these models on a 350B token dataset using the AdamW optimizer,
+with a global batch size of 4096. We employed a cosine decay learning rate schedule that peaked at
+3e−3 after 2000 warmup steps. All sliding window attention layers used a window size of 512 tokens
+with RoPE. For hybrid attention models we maintained a consistent 3:1 ratio between local (sliding
+window) and global attention layers and used attention scaling during inference (though we include a
+control without attention scaling). Below is a brief description of each of the models:
+local only - Implements sliding window attention across all layers.
+global only (RoPE) - Standard transformer language model utilizing global attention with RoPE
+across all layers.
+global only (NoPE) - Implements global attention with NoPE across all layers.
+global_start - Begins with a global NoPE layer followed by three consecutive sliding window layers,
+repeating this pattern throughout. For inference, we additionally evaluate a version without attention
+scaling to establish a baseline.
+local_start - Begins with three sliding window layers followed by a global NoPE layer, repeating
+this pattern throughout.
+all_global_first - Concentrates all six global NoPE layers in the first positions, followed by sliding
+window layers.
+all_local_first - Places all sliding window layers first, followed by six global NoPE layers.
+Table 5 shows results for the NIAH task from the RULER benchmark [22].2 Among the baseline
+non-hybrid attention models, the local only model struggles to maintain high NIAH scores beyond its
+local window size (512), despite being trained on sequences of length 1k. However, unlike the global
+only attention baselines (RoPE and NoPE), which completely fail beyond the training distribution,
+the local only model demonstrates a modest capacity for length extrapolation. In contrast, all hybrid
+attention variants show substantial improvements in generalizing beyond the training length.
+When comparing the hybrid variants we find that interspersing global and local attention layers
+yields superior performance compared to grouping them together, as evidenced by the relatively
+poor performance of both all_global_first and all_local_first configurations. In particular, our
+best-performing model (global_start achieves exceptional NIAH scores (> 0.9) at context lengths
+of 16k — 16 times the context length seen during training. It can also maintain robust performance
+(NIAH score > 0.7) even at 32k tokens, representing a 32-fold length extrapolation.
+The critical role of attention scaling is demonstrated by our control experiment with global_start (no
+scale). While both scaled and unscaled variants maintain strong performance up to 2k tokens, their
+behaviors diverge dramatically at longer contexts. The unscaled version shows rapid performance
+2
+
+For simplicity we only evaluate the single NIAH task.
+
+14
+
+degradation beyond 4k tokens, dropping from 0.820 to 0.171 at 8k tokens and essentially failing
+(0.005) at 16k tokens. In contrast, the scaled version maintains exceptional performance at 8k tokens
+(0.957) and continues to achieve strong results at 16k tokens (0.907), and even maintains moderately
+good results at 32k tokens. This stark difference in length generalization — 4-fold extrapolation
+without scaling versus 32-fold with scaling — establishes attention scaling as a crucial mechanism
+for effective inference beyond the training length distribution. The graceful performance decline
+of the scaled model, compared to the abrupt deterioration of its unscaled counterpart, suggests that
+attention scaling helps maintain the model’s ability to capture long-range dependencies even at
+extreme sequence lengths.
+
+B
+
+Architecture & Training
+
+Both RoPE-GPT-1B and SWAN-GPT-1B are trained from scratch with a batch size of 6M tokens (at
+8k sequence length) with peak LR of 3e-3 for 1T tokens. We performed CPT for SWAN-8B with
+32k sequence length and 6M token batch size at constant LR of 1e-5 for 300B tokens and ramped
+down to a LR of 5e-8 over another 15B tokens. Post-training for SWAN-8B model was performed in
+two stages. The first stage focused on a math and code blend with constant LR of 5e-6 followed by a
+second stage of general SFT at a constant LR of 1e-6.
+
+nlayers
+dmodel
+nheads
+dhead
+RoPE base
+Normalization
+global:local
+SWA size
+
+SWAN-1B
+24
+1536
+16
+96
+1,000,000
+RMSNorm
+1:3
+512
+
+SWAN-8B
+32
+4096
+32
+128
+1,000,000
+RMSNorm
+1:3
+512
+
+Table 6: Architecture details for SWAN-1B and SWAN-8B models.
+
+15
+
+

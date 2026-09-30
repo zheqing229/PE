@@ -26,7 +26,7 @@ RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进�
 
 > **长上下文模型需要的，究竟是一套统一的位置编码，还是一种分层的位置分工？**
 
-## RoPE：用绝对形式表达相对位置的优雅设计
+## 1. RoPE：用绝对形式表达相对位置的优雅设计
 
 非常推荐阅读苏剑林苏神的博客：
 - [让研究人员绞尽脑汁的Transformer位置编码](https://spaces.ac.cn/archives/8130) 这篇介绍了早期的绝对和相对位置编码，以及早期关于 RoPE 想法的出现，读完之后真的会由衷赞叹苏神的想法，简直是太美妙了。
@@ -36,7 +36,7 @@ RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进�
 
 简单说，RoPE 的核心思想是：**让 query 和 key 在旋转角度上不同，从而让注意力分数显式依赖相对位置。**
 
-1. 从二维旋转开始
+### 1.1 从二维旋转开始
 
 先把 query 或 key 的两个相邻维度看成一个二维向量。对于位置 $m$，RoPE 用旋转矩阵将它旋转 $m\theta$：
 
@@ -57,7 +57,7 @@ $$
 
 这里的 $q_m,k_n$ 是内容向量，旋转角度则携带了它们各自的绝对位置信息。
 
-2. 为什么最终表示的是相对位置
+### 1.2 为什么最终表示的是相对位置
 
 注意力分数由 query 和 key 的内积决定。加入 RoPE 后，有
 
@@ -114,7 +114,7 @@ $$
 - 距离拉开时， $\cos$ 项给内容相似度乘上一个随距离起伏的权重，$\sin$ 项掺入一个与内容正交的分量；
 - 所以 RoPE 没有把位置加到分数上，而是**用相对距离去调制内容匹配的结果**——位置是乘性门控，不是加性偏置。
 
-3. 扩展到高维向量
+### 1.3 扩展到高维向量
 
 实际模型中的 head dimension 通常为偶数 $d$。RoPE 将向量按两维一组，给第 $i$ 组使用不同频率
 
@@ -140,7 +140,7 @@ $$
 
 随后再经过 causal mask 和 softmax 得到注意力权重。
 
-4. 直观理解
+### 1.4 直观理解
 
 **（a）复数视角：位置就是相位**
 
@@ -179,13 +179,13 @@ $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$�
 
 位置信息的目标只是决定"关注谁"，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}v_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
 
-## 重新审视 RoPE：怎么失灵了？
+## 2. 重新审视 RoPE：怎么失灵了
 
 当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，高频维度的旋转角度会进入模型从未见过的相位区间，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中必须依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
 
-此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](./2605.15514v1.pdf)（Du et al., 2026，arXiv v1）提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
+此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](https://arxiv.org/abs/2305.19466)（Du et al., 2026，arXiv v1）提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
 
-### 从旋转矩阵到振荡信号
+### 2.1 从旋转矩阵到振荡信号
 
 回顾刚刚给出的二维 RoPE 展开：
 $\langle \tilde q_m,\tilde k_n\rangle=\langle q_m,k_n\rangle\cos\bigl((n-m)\theta\bigr)
@@ -323,7 +323,7 @@ $$
 
 ![](NormalApprox.png)
 
-### 四种失败模式
+### 2.2 四种失败模式
 
 | 现象 | 数学表现 | 直观含义 |
 |---|---|---|
@@ -334,8 +334,236 @@ $$
 
 当上下文 $L$ 进一步变长时，$\lambda(L)=\Theta(h\log_B L)$ 变大，更多项从低频常数被划进高频噪声：$\mu$ 稳定项变少，$\sigma^2$ 变大，论文证明了两种“反转”的概率下界最终都可趋近 $0.5$，即排序接近抛硬币猜测；两种“混叠”还会受到 BF16 等有限数值精度的放大。
 
-### RoPE base 不是免费的午餐
+### 2.3 RoPE base 不是免费的午餐
 
 增大 base $B$ 会让各维度旋转得更慢。这有助于稳定不同 token 的相关性排序，缓解 token 反转和 token 混叠；但不同位置之间的相位差也会变小，从而加重位置反转和位置混叠。较大的 base 更有利于区分 token，却更不利于区分位置；较小的 base 则相反。
 
 因此，位置插值、NTK scaling 或单纯增大 base 更像是在两类误差之间重新分配预算，而不是从根本上消除长上下文问题。
+
+## 3. NoPE：不显式注入位置信息，模型可以隐式地学习到位置吗
+
+既然显式位置编码 RoPE 会把模型锁死在训练时见过的旋转角里，那么如果不使用位置编码，模型会不会自行学习到隐式的位置信息呢？
+
+这是一个很反直觉的现象：最开始设计 Transformer 的时候就引入了位置编码，因为 Attension 机制的设计天然不具有位置信息，那为什么又要重新尝试 NoPE (No Positional Encoding) 呢？
+
+首先需要澄清的是，Encoder 里的自注意力对位置是不敏感的。所以 BERT 一旦去掉位置编码，就退化成词袋模型。
+
+但 decoder-only 不一样，核心就是 **causal mask**，因果掩码打破了置换对称性：位置 $t$ 的 query 只能看到 $1,\ldots,t$ 这些位置的 key。也就是说，能看到多少个历史 token，可能本身编码了位置信息。
+
+论文 [The Impact of Positional Encoding on Length Generalization in Transformers](https://arxiv.org/abs/2305.19466)（Kazemnejad et al., 2023，arXiv:2305.19466）证明，NoPE 这种隐式位置不仅能学习到绝对位置，也能学习到相对位置，同时系统对比了 APE、T5 Relative Bias、ALiBi、RoPE 和 NoPE，结论如下：
+
+- 在长度泛化的算法任务上，NoPE 与最强的显式方案 T5 Relative Bias 打平，甚至更好；
+- 而 RoPE 的表现反而更接近 APE，长度外推并不理想。
+
+### 3.1 NoPE 怎么学到绝对位置
+
+论文的 Theorem 1 说：
+
+> 对输入 $x=[\langle \mathrm{bos}\rangle, x_1,\ldots,x_T]$ ，NoPE 的第一层存在一组参数，使得隐状态 $H^{(1)}$ 中恢复出绝对位置 $[1,\ldots,T+1]$。也就是说，我们可以找出一组 $W_Q, W_K, W_V, W_O, W_1, W_2$ 使得可以把第一层恢复的绝对位置写入到下一层的隐状态。
+
+证明是构造性的，仅需使用隐藏状态的前三个维度。其余的注意力头只要不覆盖前三个维度，其具体形式可以是任意的。这在实践中并不会带来任何困难，因为实际使用的 Transformer 模型通常具有非常大的模型维度。
+
+**第一步，用 embedding 埋两个锚点**
+
+把隐状态的前三个维度先预留出来：
+
+- 第 1 维：所有 token 都置为 $1$（常数）；
+- 第 2 维：仅当 token 是 $\langle \mathrm{bos}\rangle$ 时为 $1$，否则为 $0$; 这里不妨假设 $\langle \mathrm{bos}\rangle$ 的 token id 是 $0$；
+- 第 3 维：初始为 $0$，留给注意力往里写位置;
+- 其它维：其余维度不受影响。
+
+也就是词嵌入矩阵形如
+
+$$
+W_E=
+\begin{bmatrix}
+1 & 1 & 1 & \cdots & 1\\
+1 & 0 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+e_{4,1} & e_{4,2} & e_{4,3} & \cdots & e_{4,V}\\
+\vdots & \vdots & \vdots & \ddots & \vdots
+\end{bmatrix}_{d\times V}.
+$$
+
+$d$ 代表隐状态维度，$V$ 代表词表大小。
+
+**第二步，让注意力均匀数数**
+
+取一个注意力头，参数设计成这样，因为实践中基本都使用多头注意力，所以设计一个 head 就够了，其他 head 只要不覆盖这前三维就可以：
+
+- $W_K$ 只读第 1 维 → 所有 key 完全相同；
+- $W_V$ 只读第 2 维 → 只有 $\langle  \mathrm{bos}\rangle$ 的 value 是 $1$，其余都是 $0$；
+- $W_Q$ 随意，$W_O$ 把结果写回第 3 维。
+
+$$
+W_K=\begin{bmatrix}
+1 & 0 & \cdots & 0\\
+1 & 0 & \cdots & 0\\
+\vdots & \vdots & \ddots & \vdots\\
+1 & 0 & \cdots & 0
+\end{bmatrix}_{h\times d}, 
+W_V=\begin{bmatrix}
+0 & 1 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+\vdots & \vdots & \vdots & \ddots & \vdots\\
+0 & 0 & 0 & \cdots & 0
+\end{bmatrix}_{h\times d},
+W_O=\begin{bmatrix}
+0 & 0 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+1 & 0 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+\vdots & \vdots & \vdots & \ddots & \vdots\\
+0 & 0 & 0 & \cdots & 0
+\end{bmatrix}_{d\times h}.
+$$
+
+$h$ 代表注意力一个头的维度。
+
+一个输入序列 $x$ 写成 one-hot 矩阵 $X=[x_0, x_1,\ldots,x_T]\in\mathbb{R}^{V\times(T+1)}$ , 每一列是一个 token 的 one-hot 项量， $x_0$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量，经过 $W_E$ 得到隐状态 $H^{(0)}$ , 
+
+$$
+H^{(0)}=W_EX
+=\begin{bmatrix}
+1 & 1 & 1 & \cdots & 1\\
+1 & 0 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+e_{4,1} & e_{4,2} & e_{4,3} & \cdots & e_{4,V}\\
+\vdots & \vdots & \vdots & \ddots & \vdots
+\end{bmatrix}
+\begin{bmatrix}
+x_0 & x_1 & \cdots & x_T
+\end{bmatrix}
+=\begin{bmatrix}
+1 & 1 & 1 & \cdots & 1\\
+1 & 0 & 0 & \cdots & 0\\
+0 & 0 & 0 & \cdots & 0\\
+e_{4,1} & e_{4,\text{token\_id}(x_1)} & e_{4,x_2} & \cdots & e_{4,x_T}\\
+\vdots & \vdots & \vdots & \ddots & \vdots
+\end{bmatrix}_{d\times(T+1)}.
+$$
+
+这里矩阵内 $e_{4,x_1}$ 的下标 $x_1$ 代表 $x_1$ 的词嵌入向量序号，$e_{4,x_2}$ 代表 $x_2$ 的词嵌入向量，以此类推。
+
+因为所有 key 一样，未归一化分数全都相等。在 causal mask 下，位置 $t$ 的 query 只能看见前 $t$ 个 token，于是
+
+$$
+\alpha^\star=\mathrm{softmax}(\alpha)=\Bigl(\frac1t,\frac1t,\ldots,\frac1t\Bigr).
+$$
+
+再对 value 加权求和：只有 $\langle bos\rangle$ 贡献了 $1$，所以
+
+$$
+o_t=W_O\sum_{i\le t}\alpha_i^\star v_i
+=W_O\cdot\frac1t
+\;\Longrightarrow\;
+h^{(1)}_{t,3}=\frac1t.
+$$
+
+**注意力输出的第 3 维，恰好是绝对位置的倒数 $1/t$。**
+
+**（c）用 FFN 把 $1/t$ 还原成 $t$**
+
+第一层的前馈网络是带 ReLU 的 MLP，足够宽时可以逼近任意函数（Park et al., 2020），因此完全可以学出映射
+
+$$
+\frac1t \;\longmapsto\; t.
+$$
+
+于是从第二层开始，残差流里就合法地躺着每个 token 的绝对位置。
+
+这个构造里藏着两个关键零件，缺一不可：
+
+| 零件 | 作用 |
+|---|---|
+| causal mask | 决定 query 能看见 $t$ 个 key，把“可见长度”变成位置计数器 |
+| $\langle bos\rangle$（或任意锚点 token） | 打破平移对称，给计数提供原点；实际使用中的 instruction / prompt 就在扮演这个角色 |
+
+所以 NoPE 的位置不是“凭空出现”的，而是 **causal mask 的可见范围 + 一个锚点 token + softmax 归一化** 共同算出来的。
+
+### 定理 2：有了绝对位置，就能做出相对位置
+
+Theorem 1 只保证隐状态里“有位置”。真正影响注意力分数的是 Theorem 2：
+
+> 若 $H^{(l)}$ 中已含有绝对位置（且不被后续层覆盖），则 $l\ge 2$ 的自注意力可以实现相对位置编码：存在参数化使得
+> $$
+> \langle q_t, k_i\rangle = f_{\mathrm{cnt}}(q,k) + f_{\mathrm{rel}}(t-i).
+> $$
+
+构造同样只需要很少几个维度。令
+
+$$
+q_t = [1,\; -t,\; q_3,\ldots,q_h],\qquad
+k_i = [i,\; 1,\; k_{3,i},\ldots,k_{h,i}],
+$$
+
+则内积直接拆开：
+
+$$
+\begin{aligned}
+\langle q_t, k_i\rangle
+&= 1\cdot i + (-t)\cdot 1 + \sum_{j=3}^{h} q_j k_{j,i}\\
+&= \underbrace{\sum_{j=3}^{h} q_j k_{j,i}}_{f_{\mathrm{cnt}}(q,k)}
+\;+\;
+\underbrace{(i-t)}_{f_{\mathrm{rel}}(t-i)}.
+\end{aligned}
+$$
+
+于是注意力分数干净地分成了两项：
+
+- $f_{\mathrm{cnt}}$：只和内容有关；
+- $f_{\mathrm{rel}}(t-i)=-(t-i)$：只和相对距离有关。
+
+这和 T5 Relative Bias 把 $f(i-j)$ 加到 logits 上、以及 RoPE 最终只依赖 $n-m$ 的形式是同一类东西——只不过 NoPE 是**自己学出来的**，而不是人工写进架构里。而且论文指出，第一层的 MLP 甚至可以把任意关于绝对位置的函数写进隐状态，所以学到的 $f_{\mathrm{rel}}$ 不必是线性的，可以更复杂。
+
+### 实践中学到的是哪一种？
+
+理论说“既能绝对、也能相对”，那 SGD 到底选了哪个？论文用了一个很聪明的办法：**比注意力模式**。
+
+把同一条输入分别喂给 NoPE 和各种显式 PE 的模型，在每一层、每个 head 上算注意力分布的 Jensen–Shannon 散度，再取两模型间所有 head 对的最小值：
+
+$$
+D^{(l)}(A,B)=\min_{(P,Q)\in A_l\times B_l}\frac1T\sum_{t=1}^{T}D_{\mathrm{JS}}\bigl(P_t\|Q_t\bigr).
+$$
+
+结果非常稳定：
+
+- **NoPE 最像 T5 Relative PE**；
+- 最不像 APE 和 Rotary；
+- 甚至比“换个随机种子的 NoPE 彼此之间”还要更接近 T5。
+
+也就是说，**没有显式位置编码的 decoder，在 SGD 下主要学会了相对位置，而且是 T5 那种加性相对 bias 的形态**，而不是 RoPE 那种乘性旋转。
+
+注意力距离的分布也印证了这一点：NoPE 和 T5 RPE 都呈现出“近处 + 远处”的双峰注意力（既有短程依赖，也会回看输入），而 ALiBi 因为 recency bias 强烈偏向近邻，Rotary 则更接近 APE 的均匀分布。在 scratchpad 加法实验里，恰好是双峰的 NoPE / T5 RPE 表现最好。
+
+### 长度泛化上的表现
+
+在 Copy / Reverse / Addition / Polynomial / Sort / Summation / Parity / LEGO / SCAN / PCFG 这批任务上（训练长度 $\le L=20$，测试到 $2L$）：
+
+| 位置方案 | 长度泛化表现 | 备注 |
+|---|---|---|
+| **NoPE** | 与 T5 RPE 打平或更好 | 无额外计算开销 |
+| **T5 Relative Bias** | 显式方案里最好 | 但 bias 计算几乎让训练/推理慢一倍 |
+| ALiBi | 中等 | recency bias 不一定帮到算法任务 |
+| Rotary (RoPE) | 差 | 行为更接近 APE |
+| APE | 差 | 未见位置无法外推（learned 版更是硬窗口） |
+
+作者后来补训了 1B 规模、上下文 1024 的语言模型：I.I.D. 上几种方案困惑度接近；长度外推时 **Rotary 的困惑度直接爆炸**，NoPE 与 ALiBi 大约能撑到训练窗口的两倍，更长时 ALiBi 相对更稳一些。这也提醒我们：困惑度和下游算法任务上的长度泛化并不总是一回事。
+
+### 怎么理解这件事
+
+把 NoPE 和 RoPE 摆在一起看，位置信息其实有三种注入路径：
+
+1. **加进 embedding**（APE）——位置和内容在入口就绑死；
+2. **调制注意力分数**（RoPE 旋转、T5 bias、ALiBi 线性惩罚）——位置在每层都显式参与打分；
+3. **从因果结构里读出来**（NoPE）——位置不在任何显式项里，而是被 mask、softmax 和锚点 token 隐式计算出来。
+
+RoPE 的优雅在于“绝对进、相对出”，但它的代价是把频率写死进了架构，长度一超训练窗口就振荡、混叠（上一节的四种失败模式）。NoPE 则把位置的**表示方式**交给优化器：SGD 可以选绝对也可以选相对，实践中更偏向相对，而且没有外推不到的旋转角需要修补。
+
+当然，NoPE 不是免费午餐：
+
+- 理论构造依赖 $\langle bos\rangle$ 这类锚点，以及残差流里“不被覆盖”的位置通道；
+- 它的隐式位置更依赖训练中学到的算法，可解释性不如 RoPE 那样有明确的相位几何；
+- 在更长的真实语言建模场景里，NoPE 的外推上限仍有限，未必能单独扛住百万级上下文。
+
+但至少回答了本文留下的问题之一：**显式位置编码并不是 decoder-only Transformer 表示位置的必要条件。** 位置可以被算出来，而不必被写进去。这为后面“不同层、不同 head 分工使用不同位置机制”腾出了空间——如果一层自己就能读出相对位置，那我们或许只需要在真正需要的地方注入 RoPE。
