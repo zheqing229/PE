@@ -657,8 +657,7 @@ $$
 \end{bmatrix}}_{\bm{q}_t^{\mathsf T}}\;
 \underbrace{\begin{bmatrix}
 i \\ 1 \\ k_{3,i} \\ \vdots
-\end{bmatrix}}_{\bm{k}_i}
-=
+\end{bmatrix}}_{\bm{k}_i}=
 1\cdot i + (-t)\cdot 1 + \sum_{j=3}^{h} q_j k_{j,i}\\
 &= \underbrace{\sum_{j=3}^{h} q_j k_{j,i}}_{f_{\mathrm{content}}(\bm{q},\bm{k})}
 \;+\;
