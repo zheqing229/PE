@@ -651,7 +651,7 @@ $k_{j,i}\in \mathbb{R}$.
 
 $$
 \begin{aligned}
-\langle \bm{q}_t, \bm{k}_i\rangle
+\langle \boldsymbol{q}_t, \bm{k}_i\rangle
 &= \underbrace{\begin{bmatrix}
 1 & -t & q_3 & \cdots
 \end{bmatrix}}_{\bm{q}_t^{\mathsf T}}\;
