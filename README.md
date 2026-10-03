@@ -821,28 +821,19 @@ k_j^{(i)}|
 
 同时，论文还注意到单个注意力 head 并不是均匀使用一大片低频，而是会在某些频率上范数特别大，所以才说**稀疏性**。此外论文还观察了 value 是否出现类似情况，答案是否定的，这才确定是 RoPE 导致的这些现象。
 
+继续研究，论文发现有的头的注意力分数只集中在 query 和其对应位置的 key 上，呈现出一种对角式的注意力，或者只集中在 query 和其前一个 token 的 key 上，呈现出关注前一个 token 的注意力。这两种注意力都需要依赖高频才能体现，否则低频的话本身变化太小。随后论文证明了 NoPE 不能构建出这种对角式和关注前一个 token 的注意力模式，但是 RoPE 可以。
 
-### 4.1 RoPE 的频率分工
+这个结论和上一节对 NoPE 的结论矛盾吗？其实不是，上一节说明了 NoPE 可以通过完整网络逐步学出位置表示，再实现位置型注意力；但没有 RoPE 预先生成的位置表示时，一个孤立的 NoPE 头能不能稳健地区分相同内容的不同位置其实是存疑的。
 
-设 query 和 key 的维度为 $d$，每两个维度组成一个二维通道，一共有 $h=d/2$ 个频率。标准 RoPE 使用的频率可以写成
+高频匹配了位置信息，而语义信息聚焦谁的内容符合当前的 query 的要求，无论某个目标 token 在近处还是远处，都希望根据其内容找到它，因此也就适配低频。
 
-$$
-\omega_k=\theta^{-2(k-1)/d},\qquad k=1,\ldots,h,
-$$
-
-其中 $\theta$ 是 base wavelength，通常取 $10000$。按照这个编号，$\omega_1$ 最大，是旋转最快的频率；$\omega_h$ 最小，是旋转最慢的频率。
-
-对位置 $i$ 的 query 和位置 $j$ 的 key，RoPE 注意力分数可以拆成每个二维通道的和：
-
-$$
-\left\langle R_i\bm q_i,R_j\bm k_j\right\rangle
-=\sum_{k=1}^{h}
-\left(\bm q_i^{(k)}\right)^{\mathsf T}
-\bm R\bigl((j-i)\omega_k\bigr)
-\bm k_j^{(k)}.
-$$
-
-这里最关键的是相对距离 $j-i$。当 $\omega_k$ 较大时，即使只移动一个 token，旋转角度也会明显变化，所以高频通道能够很快地区分“当前位置”和“前一个位置”。而当 $\omega_k$ 很小时，短距离内有
+对于 RoPE 注意力分数 $
+s(m,n)
+=\sum_{i=1}^{d/2}
+\left(\bm q_m^{(i)}\right)^{\mathsf T}
+\bm R\bigl((n-m)\theta_i\bigr)
+\bm k_n^{(i)}$ , 
+当 $\theta_i$ 很小时， $(n-m)\theta_i\rightarrow0$，就有
 
 $$
 \bm R\bigl((j-i)\omega_k\bigr)\approx \bm I,
@@ -850,25 +841,25 @@ $$
 
 这时内积主要反映内容相似性，而不是位置差异。
 
-问题在于，$\omega_k$ 再小也不是零。只要上下文足够长，$(j-i)\omega_k$ 仍然会累积成较大的角度，原本应该稳定的语义通道也可能发生错位。论文把这种通道称为 semantic channel，并指出它在长上下文中并不真正 distance agnostic。
+然而 $\theta_i$ 再小也不是零，只要上下文足够长，$(n-m)\theta_i$ 仍会累积成较大的角度，原本应该稳定的语义通道也可能发生错位，在长上下文中并不真正远程衰减。也就由此引出了 p-RoPE 的想法。
 
 ### 4.2 p-RoPE 的定义
 
 设 $p\in[0,1]$ 表示保留多少比例的 RoPE 频率，令
 
 $$
-r=\left\lfloor p\frac d2\right\rfloor.
+\zeta=\left\lfloor p\frac d2\right\rfloor.
 $$
 
-p-RoPE 只对前 $r$ 个二维通道进行旋转，对剩下的低频通道使用恒等变换：
+p-RoPE 只对前 $\zeta$ 个二维通道进行旋转，对剩下的低频通道使用恒等变换：
 
 $$
 \bm R_{i}^{(p)}
 =\operatorname{diag}\left(
-\bm R(i\omega_1),
+\bm R(i\theta_1),
 \ldots,
-\bm R(i\omega_r),
-\underbrace{\bm I,\ldots,\bm I}_{h-r\text{ 个}}
+\bm R(i\theta_{\zeta}),
+\underbrace{\bm I,\ldots,\bm I}_{\frac{d}{2}-\zeta\text{ 个}}
 \right).
 $$
 
@@ -876,26 +867,24 @@ $$
 
 $$
 \begin{aligned}
-s_{i,j}^{(p)}
-&=\left(\bm q_i\right)^{\mathsf T}
-\left(\bm R_i^{(p)}\right)^{\mathsf T}
-\bm R_j^{(p)}\bm k_j\\
-&=\sum_{k=1}^{r}
-\left(\bm q_i^{(k)}\right)^{\mathsf T}
-\bm R\bigl((j-i)\omega_k\bigr)\bm k_j^{(k)}
-+\sum_{k=r+1}^{h}
-\left(\bm q_i^{(k)}\right)^{\mathsf T}\bm k_j^{(k)}.
+s_{m,n}^{(p)}
+&=\left(\bm q_m\right)^{\mathsf T}
+\left(\bm R_m^{(p)}\right)^{\mathsf T}
+\bm R_n^{(p)}\bm k_n\\
+&=\sum_{i=1}^{\zeta}
+\left(\bm q_m^{(i)}\right)^{\mathsf T}
+\bm R\bigl((n-m)\theta_i\bigr)\bm k_n^{(i)}
++\sum_{i=\zeta+1}^{\frac{d}{2}}
+\left(\bm q_m^{(i)}\right)^{\mathsf T}\bm k_n^{(i)}.
 \end{aligned}
 $$
 
-这个式子很直观：前半部分仍然是 RoPE，负责提供显式的位置几何；后半部分完全不再感知相对距离，可以作为稳定的内容或语义通道。
+前半部分仍然是 RoPE，负责提供显式的位置几何；后半部分不再感知相对距离，可以作为稳定的语义通道。
 
-两个边界情况也很重要：
+当 $p=1$ 时，所有通道都旋转，退化为标准 RoPE；而 $p=0$ 时，所有通道都不旋转，退化为 NoPE。
 
-- $p=1$ 时，所有通道都旋转，退化为标准 RoPE；
-- $p=0$ 时，所有通道都不旋转，退化为 NoPE。
+所以 $p$ 可以看成 RoPE 和 NoPE 之间的一个结构插值参数。
 
-所以 $p$ 可以看成 RoPE 和 NoPE 之间的一个结构插值参数。但它并不是简单地把两种模型的输出做加权平均，而是在同一个 attention head 的不同通道中同时保留两种机制。
 ### 4.3 为什么要去掉最低频率
 
 这里容易产生一个反直觉：既然高频更容易在长距离下振荡，为什么 p-RoPE 去掉的不是高频，而是最低频？答案在于不同频率承担的功能不同。
