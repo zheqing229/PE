@@ -1135,7 +1135,9 @@ p-RoPE 和 iRoPE 提供了两种分工方式：前者在一个 head 内保留部
 ### 一、位置编码与 RoPE 基础（第 1 章）
 
 **[1]** 苏剑林. *让研究人员绞尽脑汁的 Transformer 位置编码*. 科学空间, 2021-02. [https://spaces.ac.cn/archives/8130](https://spaces.ac.cn/archives/8130)
+
 **[2]** 苏剑林. *Transformer 升级之路：2、博采众长的旋转式位置编码*. 科学空间, 2021. [https://spaces.ac.cn/archives/8265](https://spaces.ac.cn/archives/8265)
+
 **[3]** Jianlin Su et al. *RoFormer: Enhanced Transformer with Rotary Position Embedding*. *Neurocomputing*, 568: 127063, 2024. [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
 
 ### 二、RoPE 的长上下文失效（第 2 章）
@@ -1149,14 +1151,21 @@ p-RoPE 和 iRoPE 提供了两种分工方式：前者在一个 head 内保留部
 ### 四、混合设计：p-RoPE 与 iRoPE（第 4、5 章）
 
 **[6]** Federico Barbero et al. *Round and Round We Go! What makes Rotary Positional Encodings useful?*. arXiv:2410.06205, 2024-10（v3 修订于 2025-05）. [arXiv:2410.06205](https://arxiv.org/abs/2410.06205)
+
 **[7]** Bowen Yang et al. *Rope to Nope and Back Again: A New Hybrid Attention Strategy*. arXiv:2501.18795, 2025-01（v2 修订于 2025-10）. [arXiv:2501.18795](https://arxiv.org/abs/2501.18795)
+
 **[8]** Ziqing Qiao et al. *Rethinking the Role of Efficient Attention in Hybrid Architectures*. arXiv:2606.15378, 2026-06. [arXiv:2606.15378](https://arxiv.org/abs/2606.15378)
+
 **[9]** Krishna C. Puvvada et al. *SWAN-GPT: An Efficient and Scalable Approach for Long-Context Language Modeling*. arXiv:2504.08719, 2025-04. [arXiv:2504.08719](https://arxiv.org/abs/2504.08719)
+
 **[10]** Meta AI. *The Llama 4 Herd: The Beginning of a New Era of Natively Multimodal AI Innovation*. Meta AI Blog, 2025-04. [ai.meta.com/blog/llama-4-multimodal-intelligence](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)
+
 **[11]** Meta. *llama-models：Llama 4 model implementation*. GitHub, 2025. [models/llama4/model.py](https://github.com/meta-llama/llama-models/blob/main/models/llama4/model.py)
 
 ### 五、评测与工具（第 6 章）
 
 **[12]** Greg Kamradt. *Needle In A Haystack（NIAH）*. GitHub, 2023-11. [https://github.com/gkamradt/needle-in-a-haystack](https://github.com/gkamradt/needle-in-a-haystack)
+
 **[13]** Jeffrey Li et al. *DataComp-LM: In Search of the Next Generation of Training Sets for Language Models*. NeurIPS 2024 Datasets and Benchmarks Track. [arXiv:2406.11794](https://arxiv.org/abs/2406.11794)
+
 **[14]** Andrej Karpathy. *nanochat*. GitHub, 2025-10. [github.com/karpathy/nanochat](https://github.com/karpathy/nanochat)
