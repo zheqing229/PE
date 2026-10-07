@@ -2,7 +2,7 @@
 
 当上下文长度从几千个 token 扩展到几十万，甚至更长时，语言模型遇到的瓶颈不只是显存和计算量,还有一个更基础的问题：**模型究竟应该如何理解“位置”？**
 
-在 Transformer 中，注意力机制本身并不知道两个 token 的先后顺序。为了让模型区分“我爱你”和“你爱我”，研究者引入了各种位置编码，RoPE之前主要的研究可以大致区分成两类：绝对位置编码和相对位置编码。而 RoPE 凭借简洁、有效以及能融合相对位置编码和绝对位置编码的自然建模，成为大语言模型中的主流方案。
+在 Transformer 中，注意力机制本身并不知道两个 token 的先后顺序。为了让模型区分“我爱你”和“你爱我”，研究者引入了各种位置编码，RoPE 出现之前主要的研究可以大致区分成两类：绝对位置编码和相对位置编码。而 RoPE 凭借简洁、有效以及能融合相对位置编码和绝对位置编码的自然建模，成为大语言模型中的主流方案。
 
 RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进行不同角度的旋转。这样一来，两个 token 的注意力分数就会显式依赖它们之间的相对距离。在训练长度以内，这种位置先验通常表现得非常好。
 
@@ -14,11 +14,11 @@ RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进�
 
 > **如果直接不显式注入位置编码，会发生什么？**
 
-这就是 NoPE 的出发点。NoPE 不再直接向注意力分数中加入旋转位置，而是让模型通过 causal mask 和注意力长短窗口，自己学习隐式的位置关系。令人意外的是，在一些长度泛化任务中，没有显式位置编码的模型反而能够处理更长的序列。
+这就是 NoPE 的出发点。NoPE 不再直接向注意力分数中加入旋转位置编码，而是让模型通过 causal mask 和注意力长短窗口，自己学习隐式的位置关系。令人意外的是，在一些长度泛化任务中，没有显式位置编码的模型反而能够处理更长的序列。
 
-但 NoPE 也不是一个简单的替代方案。它可能带来困惑度上升、短文本任务退化，以及有限的泛化长度。RoPE 和 NoPE 似乎分别擅长不同的事情：RoPE 提供稳定的短距离位置信息，而 NoPE 更有利于长距离位置理解。
+但 NoPE 也不是一个简单的替代方案，模型可能难以学到稳定的位置建模。RoPE 和 NoPE 似乎分别擅长不同的事情：RoPE 提供稳定的短距离位置信息，而 NoPE 更有利于长距离位置理解。
 
-于是，研究问题开始发生变化，进一步追问：**不同层、不同维度和不同注意力范围，是否应该使用不同的位置机制？**
+于是，研究问题开始发生变化，进一步追问：**不同层、不同维度和不同注意力范围，是否应该使用不同的位置编码机制？**
 
 这也引出了近年来逐渐出现的混合方案：让部分层继续使用 RoPE，部分层采用 NoPE；让 RoPE 层负责局部和近期信息，让 NoPE 层负责全局检索；甚至只在部分 attention head 或部分维度中保留旋转位置编码。
 
@@ -87,8 +87,8 @@ $$
 \begin{aligned}
 \bm{R}(\Delta)\bm{k}
 &=\begin{bmatrix}
-\cos(m\theta) & -\sin(m\theta)\\
-\sin(m\theta) & \cos(m\theta)
+\cos(\Delta) & -\sin(\Delta)\\
+\sin(\Delta) & \cos(\Delta)
 \end{bmatrix}\begin{bmatrix} k_1\\k_2\end{bmatrix}\\
 &=\begin{bmatrix}k_1\cos\Delta-k_2\sin\Delta\\k_1\sin\Delta+k_2\cos\Delta\end{bmatrix}\\
 &=\begin{bmatrix} k_1 \\ k_2 \end{bmatrix}\cos\Delta + \begin{bmatrix} -k_2\\k_1\end{bmatrix}\sin\Delta\\
@@ -119,7 +119,7 @@ $$
 实际模型中的 head dimension 通常为偶数 $d$。RoPE 将向量按两维一组，给第 $i$ 组使用不同频率
 
 $$
-\theta_i=10000^{-2i/d},\qquad i=0,1,\ldots,\frac d2-1.
+\theta_i=10000^{-2i/d},\qquad i=1,\ldots,\frac d2.
 $$
 
 整体旋转矩阵是一个分块对角矩阵：
@@ -146,7 +146,7 @@ s(m,n)
 \sum_{i=1}^{d/2}
 \left(q_m^{(i)}\right)^\top
 \bm{R}\!\left((n-m)\theta_i\right)
-k_j^{(i)}.
+k_n^{(i)}.
 $$
 
 随后加上因果掩码（不可见位置置 $-\infty$），再经 softmax 得到注意力权重 $\alpha(m,n)=\mathrm{softmax}_n\,s(m,n)$。
@@ -171,7 +171,7 @@ z^{(m)}_q\,\overline{z^{(n)}_k}
 =\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}(m-n)\theta}.
 $$
 
-两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$，实现了"绝对进、相对出"。
+两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$，实现了“绝对进、相对出”。
 
 **（b）几何视角：只转弯，不改长度**
 
@@ -181,20 +181,20 @@ $$
 
 $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$）：
 
-- **高频指针**转得快，相邻位置也有明显相位差，分辨率高、能精细区分近邻；但转过一整圈后相位开始"复用"，长距离上会出现周期性混叠。
+- **高频指针**转得快，相邻位置也有明显相位差，分辨率高、能精细区分近邻；但转过一整圈后相位开始复用，长距离上会出现周期性混叠。
 - **低频指针**转得慢，在很长距离上都近似单调变化，能覆盖长程依赖，但近处区分度低。
 
 但是问题也在这里埋下了：这既是 RoPE 表达力的来源，也是后文长上下文振荡与混叠的根源。
 
 **（d）为什么 value 不需要旋转**
 
-位置信息的目标只是决定"关注谁"，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}\bm{v}_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
+位置信息的目标只是决定“关注谁”，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}\bm{v}_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
 
 ## 2. 重新审视 RoPE：怎么失灵了
 
-当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，高频维度的旋转角度会进入模型从未见过的相位区间，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中必须依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
+当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，高频维度的旋转角度会进入模型从未见过的相位区间，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中可能需要依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
 
-此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](https://arxiv.org/abs/2605.15514)（Du et al., 2026）提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
+此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](https://arxiv.org/abs/2605.15514) 提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
 
 ### 2.1 从旋转矩阵到振荡信号
 
@@ -209,8 +209,11 @@ $$
 \langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle
 &=A\cos\bigl((n-m)\theta\bigr)+B\sin\bigl((n-m)\theta\bigr)\\
 &=C\cos\bigl((n-m)\theta+\phi\bigr)\\
+\end{aligned},
+\begin{aligned}
+\phi&=\arctan2(B,A)\\
 C&=\sqrt{A^2+B^2}
-\end{aligned}.
+\end{aligned}
 $$
 
 其中 $A$, $B$, $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
@@ -267,13 +270,12 @@ $$
 我们尝试描述距离 $r$ 的分布是**在上下文长度 $[0,L)$ 上均匀分布**的。那么每个 $\Psi_n$ 就是一个随机变量，从而 $s$ 也是随机变量。所以问题变成：$s$ 的分布长什么样？
 
 我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$，$\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时，$\beta(r) = r\theta_n + \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\beta(r)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\beta$ 近似**均匀分布在 $[0,2\pi)$**，概率密度 $p(\beta)\approx\frac{1}{2\pi},\quad 0\le \beta < 2\pi$
-
  
 可以得到：
 
 $$
-\mathbb{E}[\cos\beta]\approx\int_{0}^{2\pi}\cos\beta \cdot \frac{1}{2\pi}\,d\beta=0\\
 \begin{aligned}
+\mathbb{E}[\cos\beta]&\approx\int_{0}^{2\pi}\cos\beta \cdot \frac{1}{2\pi}\,d\beta=0\\
 \mathbb{E}\left[\cos^2\beta\right]
 &\approx\int_{0}^{2\pi}\cos^2\beta \cdot \frac{1}{2\pi}\,d\beta \\
 &=\frac{1}{2\pi}\int_{0}^{2\pi}\frac{1+\cos2\beta}{2}\,d\beta \\
@@ -293,7 +295,6 @@ $$
 
 论文里用 Dirichlet Kernel 证明：$r$ 在长区间上均匀时，$\mathbb{E}[\Psi_n]=O(\frac{2C_n}{L\theta_n})\to 0$，$\mathbb{E}[\Psi_n^2]\to C_n^2/2$。
 
-
 再看**低频项**，低频项给我一种“冰冻”的感觉。当 $n \gg \lambda(L)$，$\theta_n$ 很小，$r\in[0,L)$ 时 $r\theta_n$ 扫过的角度非常小(O(1))：
 
 $$
@@ -301,7 +302,7 @@ r\theta_n+\phi_n \approx \phi_n,\qquad
 \cos(r\theta_n+\phi_n)\approx \cos\phi_n.
 $$
 
-也就是说这个余弦几乎不随 $m$ 变，像一个常数：
+也就是说这个余弦几乎不随 $r$ 变，像一个常数：
 
 $$
 \mathbb{E}[\Psi_n]\approx C_n\cos\phi_n,\qquad
@@ -332,7 +333,8 @@ $$
 
 论文给出了一个正态分布拟合注意力分数的图.
 
-![](NormalApprox.png)
+![正态分布拟合注意力分数图](NormalApprox.png)
+*使用正态分布拟合注意力分数，图片来源：RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably*
 
 ### 2.2 四种失败模式
 
@@ -361,7 +363,7 @@ $$
 
 但 decoder-only 不一样，核心就是 **causal mask**，因果掩码打破了置换对称性：位置 $t$ 的 query 只能看到 $1,\ldots,t$ 这些位置的 key。也就是说，能看到多少个历史 token，可能本身编码了位置信息。
 
-论文 [The Impact of Positional Encoding on Length Generalization in Transformers](https://arxiv.org/abs/2305.19466)（Kazemnejad et al., 2023，arXiv:2305.19466）证明，NoPE 这种隐式位置不仅能学习到绝对位置，也能学习到相对位置，同时系统对比了 APE、T5 Relative Bias、ALiBi、RoPE 和 NoPE，结论如下：
+论文 [The Impact of Positional Encoding on Length Generalization in Transformers](https://arxiv.org/abs/2305.19466) 证明，NoPE 这种隐式位置不仅能学习到绝对位置，也能学习到相对位置，同时系统对比了 APE、T5 Relative Bias、ALiBi、RoPE 和 NoPE，结论如下：
 
 - 在长度泛化的算法任务上，NoPE 与最强的显式方案 T5 Relative Bias 打平，甚至更好；
 - 而 RoPE 的表现反而更接近 APE，长度外推并不理想。
@@ -478,7 +480,7 @@ e_{4,1} & e_{4,\text{id}(\bm{x}_1)} & e_{4,\text{id}(\bm{x}_2)} & \cdots & e_{4,
 \end{bmatrix}_{h\times (T+1)}.
 $$
 
-既然 $\bm{W}_Q$ 矩阵是任意的，那么不妨考虑 $t\in [1,T]$ 时, 位置 $t-1$ 的 query  $\bm{q}_t=\bm{W}_Q\bm{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in \mathbb{R}^{h\times 1}$ (序列还有 $\langle \mathrm{bos}\rangle$ 是 $\bm{x}_0$). 在 causal mask 下，位置 $t-1$ 只与 $i\le t$ 的 key 交互。将可见的 $t$ 个 key 按列拼成
+既然 $\bm{W}_Q$ 矩阵是任意的，那么不妨考虑 $t\in [1,T]$ 时, 位置 $t$ 的 query  $\bm{q}_t=\bm{W}_Q\bm{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in \mathbb{R}^{h\times 1}$ (序列还有 $\langle \mathrm{bos}\rangle$ 是 $\bm{x}_1$). 在 causal mask 下，位置 $t$ 只与 $i\le t$ 的 key 交互。将可见的 $t$ 个 key 按列拼成
 
 $$
 \bm{K}_t=\begin{bmatrix}
@@ -595,18 +597,18 @@ $$
 \bm{W}_Q=\begin{bmatrix}
 1 & 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & -1 & 0 & \cdots & 0\\
-e_{3,1} & e_{3,2} & e_{3,3} & e_{3,4} & \cdots & e_{3,h}\\
+w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}_{h\times d}, 
 \bm{W}_K =\begin{bmatrix}
 0 & 0 & 1 & 0 & \cdots & 0\\
 1 & 0 & 0 & 0 & \cdots & 0\\
-e_{3,1}' & e_{3,2}' & e_{3,3}' & e_{3,4}' & \cdots & e_{3,h}'\\
+w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}_{h\times d}.
 $$
 
-$\bm{W}_Q, \bm{W}_V$ 矩阵除了前两个维度以外都可以是任意值， $\bm{W}_K, \bm{W}_O$ 可以是任意的只要不覆盖前三维。
+$\bm{W}_Q, \bm{W}_K$ 矩阵除了前两个维度以外都可以是任意值， $\bm{W}_V, \bm{W}_O$ 可以是任意的只要不覆盖前三维。
 
 之前证明了在该构造方法下 NoPE 把学到的绝对位置信息放在了第三维，不妨假设第 $l(l\ge2)$ 层隐状态
 
@@ -626,7 +628,7 @@ $$
 \bm{q}_t = \bm{W}_Q\bm{h}_t^{(l)}=\begin{bmatrix}
 1 & 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & -1 & 0 & \cdots & 0\\
-e_{3,1} & e_{3,2} & e_{3,3} & e_{3,4} & \cdots & e_{3,h}\\
+w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}
 \begin{bmatrix}
@@ -645,7 +647,7 @@ $$
 \bm{k}_i=\bm{W}_K\bm{h}_i^{(l)}=\begin{bmatrix}
 0 & 0 & 1 & 0 & \cdots & 0\\
 1 & 0 & 0 & 0 & \cdots & 0\\
-e_{3,1}' & e_{3,2}' & e_{3,3}' & e_{3,4}' & \cdots & e_{3,h}'\\
+w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}
 \begin{bmatrix}
@@ -693,11 +695,12 @@ $$
 D^{(l)}(A,B)=\min_{(P,Q)\in A_l\times B_l}\frac1T\sum_{t=1}^{T}D_{\mathrm{JS}}\bigl(P_t\|Q_t\bigr).
 $$
 
-![alt text](JS-NoPE.png)
+![NoPE 和其他位置编码的 JS 散度图](JS-NoPE.png)
+*SCAN数据集上，NoPE注意力模式相对于其他位置编码方案的距离。左图是逐层距离，右图为全层平均距离。NoPE'是换随机种子训练的NoPE。图片来源：The Impact of Positional Encoding on Length Generalization in Transformers*
 
 两个分布越像，$D_{\mathrm{JS}}$ 越小，而两个分布差异越大，则 $D_{\mathrm{JS}}$ 越大。
 
-通过比较使用 SGD 训练的 NoPE 和其他显示的位置编码，得到如下结果：
+通过比较使用 SGD 训练的 NoPE 和其他显式的位置编码，得到如下结果：
 
 - **NoPE 最像 T5 Relative PE**；
 - 最不像 APE 和 RoPE。
@@ -706,7 +709,8 @@ $$
 
 注意力距离的分布也印证了这一点：NoPE 和 T5 RPE 都呈现出“近处 + 远处”的双峰注意力（既有短程依赖，也会回看输入），而 ALiBi 因为 recency bias 强烈偏向近邻，Rotary 则更接近 APE 的均匀分布。
 
-![alt text](normalized_attended_distance.png)
+![各位置编码的注意力距离分布图](normalized_attended_distance.png)
+*自注意力机制中Query与Key的归一化距离分布（加法任务 + 完整草稿本），在所有层与所有注意力头上取平均。图片来源：The Impact of Positional Encoding on Length Generalization in Transformers*
 
 ### 3.4 长度泛化上的表现
 
@@ -737,18 +741,18 @@ RoPE 把有用的相对位置先验直接写进架构，短距离上稳定、明
 
 ## 4. p-RoPE：只旋转部分通道
 
-谷歌团队在论文[Round and Round We Go! What makes Rotary Positional Encodings useful?](https://arxiv.org/abs/2410.06205)给出了 p-RoPE 方法，并且在之后的 Gemma 4 模型中沿用了这个位置编码方法。其实和之前*第二章 重新审视 RoPE：怎么失灵了*有相似之处， p-RoPE 设计的起点也是观察到了 **RoPE 的不同频率可能在承担不同的工作。** 之前的分析认为 RoPE 中高频部分主要是聚焦近邻位置，而低频部分则提供远距离信息。类似地，谷歌团队的分析认为：
+谷歌团队在论文[Round and Round We Go! What makes Rotary Positional Encodings useful?](https://arxiv.org/abs/2410.06205)给出了 p-RoPE 方法，并且在之后的 Gemma 4 模型中沿用了这个位置编码方法($p=0.25$)。其实和之前*第二章 重新审视 RoPE：怎么失灵了*有相似之处， p-RoPE 设计的起点也是观察到了 **RoPE 的不同频率可能在承担不同的工作。** 之前的分析认为 RoPE 中高频部分主要是聚焦近邻位置，而低频部分则提供远距离信息。类似地，谷歌团队的分析认为：
 
 - 高频通道对相邻 token 的位移非常敏感，适合构造“当前位置”、“前一个 token”或对角线这样的局部位置模式；
 - 低频通道随位置变化得很慢，更适合承载语义相似性，让相距较远但内容相关的 token 仍然能够对齐。
 
-标准 RoPE 把所有通道都旋转，低频语义通道也变成了会随距离漂移的通道。而 p-RoPE 的想法就是：**保留高频通道的位置旋转，把最低的一部分频率改成不旋转。**
+标准 RoPE 把所有通道都旋转，低频语义通道也变成了会随距离漂移的通道。而 p-RoPE 的想法就是：**保留高频通道的位置旋转，把最低的一部分频率改为不旋转。**
 
 ### 4.1 RoPE 为什么有效
 
-论文从 RoPE 为什么有效开始研究。在苏神的博客中，他给出了一个 RoPE 具有远程衰减性的证明，这也被认为是 RoPE 奏效的关键原因。但是论文的质疑也就从这里开始，苏神给出的证明是一个衰减的上界，论文研究发现上界的衰减并不能自然带来注意力实际的必然衰减。
+论文从 RoPE 为什么有效开始研究。在苏神的博客中，他给出了一个 RoPE 具有远程衰减性的证明，这也被认为是 RoPE 奏效的关键原因。但是论文的质疑也就从这里开始，苏神给出的证明是一个衰减的上界，论文研究发现该上界的衰减并不能自然带来注意力实际的必然衰减。
 
-论文先证明给定固定的 query ，对应的注意力分数最大的 key 不一定只在近处，可能在任意地方。形式化的说，给定非零的 query $\bm{q}$ 以及 $q$ 和 key 的相对位置 $\delta\in\mathbb{Z}$ ，存在 $\bm{k}$ 使得 RoPE 之后该处的注意力分数最大，证明简单入下：
+论文先证明给定固定的 query ，对应的注意力分数最大的 key 不一定只在近处，可能在任意地方。形式化的说，给定非零的 query $\bm{q}$ 以及和 key 的相对位置 $\delta\in\mathbb{Z}$ ，存在 $\bm{k}$ 使得 RoPE 之后该处的注意力分数最大，简单证明如下：
 
 回顾之前的公式，位于位置 $m$ 的 $q$ 和位置 $n$ 的 $k$ 点积注意力, 忽略 $1/\sqrt{d}$ 的系数：
 
@@ -762,7 +766,7 @@ $$
 那么我们构造 $k=\bm{R}^{\delta}\bm{q}$ ，则有 
 
 $$
-s(\delta)=\bm{q}^{\mathsf T}\bm{R}^{-d}\bm{q}=\bm{q}^{\mathsf T}\bm{R}^{-d}\bm{R}^d\bm{q}=\bm{q}^{\mathsf T}\bm{q}=\|\bm{q}\|^2.
+s(\delta)=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{R}^{\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{q}=\|\bm{q}\|^2.
 $$
 
 将这个构造的 $k$ 代入到其他任意距离 $r$ 的 $s(r)$ 中，则有
@@ -773,7 +777,7 @@ s(r)
 &=\bm{q}^{\mathsf T}\bm{R}^{-r}\bm{k}\\
 &=\bm{q}^{\mathsf T}\bm{R}^{-r}\bm{R}^{\delta}\bm{q}\\
 &=\bm{q}^{\mathsf T}\bm{R}^{\delta-r}\bm{q}\\
-&\le\|\bm{q}^{\mathsf T}\|\cdot \|\bm{R}^{\delta-r}\bm{q}\| \\
+&\le\|\bm{q}\|\cdot \|\bm{R}^{\delta-r}\bm{q}\| \\
 &=\|\bm{q}\|^2=s(\delta).
 \end{aligned}
 $$
@@ -782,7 +786,7 @@ $$
 
 这样我们就证明了目标距离 $\delta$ 处的分数不小于任何其他距离处的分数。
 
-基于此，论文还额外证明了对于从标准正态分布中采样的 $\bm{q},\bm{k}\in \mathcal{N}(0,1)$ ，那么此时相对距离 $r$ 的分数 $s(r)$ 的期望是 0, 此处证明就略过了。
+基于此，论文还额外证明了对于从标准正态分布中采样的 $\bm{q},\bm{k}\sim \mathcal{N}(0,1)$ ，那么此时相对距离 $r$ 的分数 $s(r)$ 的期望是 0, 此处证明就略过了。
 
 那么到底是什么让 RoPE 奏效呢？
 
@@ -802,7 +806,7 @@ s(m,n)
 \underbrace{
 \left(q_m^{(i)}\right)^\top
 \bm{R}\!\left((n-m)\theta_i\right)
-k_j^{(i)}
+k_n^{(i)}
 }_{\text{第 }i\text{ 个频率的分数贡献}}.
 $$
 
@@ -812,8 +816,8 @@ $$
 
 和之前的推导一样，某个频率的贡献 $|s(m,n)^{(i)}|=|\left(q_m^{(i)}\right)^\top
 \bm{R}\!\left((n-m)\theta_i\right)
-k_j^{(i)}|
-\le \|q_m^{(i)}\|_2\|k_j^{(i)}\|_2$ 的上限就是 $q$ 和 $k$ 对应的二维块范数。如果对应的二维块范数乘积很小，那这确实可以限制贡献的大小。
+k_n^{(i)}|
+\le \|q_m^{(i)}\|_2\|k_n^{(i)}\|_2$ 的上限就是 $q$ 和 $k$ 对应的二维块范数。如果对应的二维块范数乘积很小，那这确实可以限制贡献的大小。
 
 论文观察了在模型同一层对各个 head 的二维块范数取平均后，发现低频的二维块范数明显大于高频的，且几乎每一层都表现出这个现象，由此得出第一个结论：**模型整体偏好低频**。
 
@@ -827,16 +831,11 @@ k_j^{(i)}|
 
 高频匹配了位置信息，而语义信息聚焦谁的内容符合当前的 query 的要求，无论某个目标 token 在近处还是远处，都希望根据其内容找到它，因此也就适配低频。
 
-对于 RoPE 注意力分数 $
-s(m,n)
-=\sum_{i=1}^{d/2}
-\left(\bm q_m^{(i)}\right)^{\mathsf T}
-\bm R\bigl((n-m)\theta_i\bigr)
-\bm k_n^{(i)}$ , 
+对于 RoPE 注意力分数 $s(m,n)$ , 
 当 $\theta_i$ 很小时， $(n-m)\theta_i\rightarrow0$，就有
 
 $$
-\bm R\bigl((j-i)\omega_k\bigr)\approx \bm I,
+\bm R\bigl((n-m)\theta_i\bigr)\approx \bm I,
 $$
 
 这时内积主要反映内容相似性，而不是位置差异。
@@ -854,16 +853,16 @@ $$
 p-RoPE 只对前 $\zeta$ 个二维通道进行旋转，对剩下的低频通道使用恒等变换：
 
 $$
-\bm R_{i}^{(p)}
+\bm R_{m}^{(p)}
 =\mathrm{diag}\left(\underbrace{
-\bm R(i\theta_1),
+\bm R(m\theta_1),
 \ldots,
-\bm R(i\theta_{\zeta})}_{\zeta \text{ 个}},
+\bm R(m\theta_{\zeta})}_{\zeta \text{ 个}},
 \underbrace{\bm I,\ldots,\bm I}_{\frac{d}{2}-\zeta\text{ 个}}
 \right).
 $$
 
-因此，位置 $i$ 和位置 $j$ 之间的注意力分数变成
+因此，位置 $m$ 和位置 $n$ 之间的注意力分数变成
 
 $$
 \begin{aligned}
@@ -885,7 +884,7 @@ $$
 
 所以 $p$ 可以看成 RoPE 和 NoPE 之间的一个结构插值参数。
 
-### 4.3 P-RoPE 和增大 base
+### 4.3 p-RoPE 和增大 base
 
 如果把旋转 base 增大，也可以让一部分通道在更长上下文中变化得更慢，但此时增大相应地也会整体减慢所有频率，原本负责精确位置的高频也会被改变。
 
@@ -973,10 +972,10 @@ $$
 
 在这篇论文中，研究者对 QK-Norm 的使用提出了一些担忧。论文认为，QK-Norm 会损害长上下文建模。QK-Norm 削弱了 Query 和 Key 点积中的幅度信息，导致注意力 logits 的幅度更接近、分布更平坦，结果注意力更分散，信噪比更低，不利于精确检索。所以论文在全局 NoPE 层关闭 QK-Norm，而在局部 RoPE 层中仍然保留了 QK-Norm. 
 
-为了验证这个观点，论文比较了 RoPE、QK-Norm 和 NoPE 三种模型在长上下文 NIAH ([Needle in the Haystack for Memory Based Large Language Models](https://arxiv.org/abs/2407.01437v2)) 实验的效果。简单来说，这个实验在长段文档里插入一条 Needle 信息，然后要求模型根据问题去检索它。把输入的文档分成四个部分：
+为了验证这个观点，论文比较了 RoPE、QK-Norm 和 NoPE 三种模型在长上下文 [NIAH](https://github.com/gkamradt/needle-in-a-haystack) 实验的效果。简单来说，这个实验在长段文档里插入一条 Needle 信息，然后要求模型根据问题去检索它。把输入的文档分成四个部分：
 - Begin: 序列最开头的前 10 个 token, 通常对应 attention sink。模型会习惯性地把大量注意力放在开头这些 token 上，即使它们内容不一定相关。
 - Needle: 被插入到长文档中的 Needle 句子，这是真正需要被检索的目标信息。理想情况下，模型应该给这部分较高注意力，才能答对问题。
-- End: 当前 query token 和 completion token 所在的部分，靠近序列末尾	代表近邻偏好，考察模型是否倾向于关注最近出现的 token。
+- End: 当前 query token 和 completion token 所在的部分，靠近序列末尾，代表近邻偏好，考察模型是否倾向于关注最近出现的 token。
 - Context: 除上述三部分外的其余上下文，多数是噪声或与问题无关的信息。模型应该尽量少被它干扰。
 
 实验里使用 End 段的 query token 去算注意力，观察这些 query 对四个区域里的 key token 分别分配了多少注意力，然后把注意力分数按区域汇总、跨所有 head 和 layer 平均，得到每个区域的 attention mass。
@@ -1015,12 +1014,12 @@ $e_{T-d}$ 是距离 $d$ 的 token 的 embedding，$s(x)$ 是模型在 $x$ 上的
 
 一般使用滑动窗口会设置长短窗口比例为 1:1 或 1:3，当使用 1:3 比例，一般会设置先过 3 个短窗口再过 1 个长窗口，即"SSSL"。但 [SWAN-GPT: An Efficient and Scalable Approach for Long-Context Language Modeling](https://arxiv.org/abs/2504.08719) 改成了 "LSSS"。
 
-论文对此提供的解释是：如果先过局部层并且使用 RoPE，隐藏状态已经被注入了强烈的、与训练长度绑定的 RoPE 位置信号。当这些状态随后进入全局 NoPE 层时，NoPE 层会被迫处理这些位置信号，导致 NoPE 层发展出脆弱的隐式位置编码，外推时崩溃。而先过全局 NoPE 此时输入是纯粹的 token embedding，不含任何位置信息。NoPE 层可以在一个"干净"的环境中学习纯内容相关的语义整合，之后的局部层 使用 RoPE 再在此基础上叠加局部位置关系。
+论文对此提供的解释是：如果先过局部层并且使用 RoPE，隐藏状态已经被注入了强烈的、与训练长度绑定的 RoPE 位置信号。当这些状态随后进入全局 NoPE 层时，NoPE 层会被迫处理这些位置信号，导致 NoPE 层发展出脆弱的隐式位置编码，外推时崩溃。而先过全局 NoPE 此时输入是纯粹的 token embedding，不含任何位置信息。NoPE 层可以在一个干净的环境中学习纯内容相关的语义整合，之后的局部层 使用 RoPE 再在此基础上叠加局部位置关系。
 
 此外，论文还对全局 NoPE 层做了一个推理时的注意力缩放：随着上下文变长，对全局层的 attention logits 乘以随位置增长的缩放因子。在 softmax 之前，对位置 $n$ 处的原始 attention logits 进行操作：
 
 $$
-\text{scaled\_logits}_n = \frac{\text{raw\_logits}_n}{\log_a(a + n)} 
+\text{scaled\_logits}_n = \text{raw\_logits}_n\frac{1}{\log_a(a + n)} 
 $$
 
 其中 $a$ 是一个通过离线拟合得到的单一标量超参数（论文中 $a^* \approx 7.5$）。
@@ -1060,22 +1059,21 @@ $$
 | NoPE+不使用滑动窗口 | 1.3062e+5 (-3.05%) | 0.7673 (+1.62%) | 0.2039 (-11.39%) |
 | p-RoPE | 1.3663e+5 (+1.41%) | 0.7548 (-0.04%) | 0.2113 (-8.17%) |
 | iRoPE | 1.3776e+5 (+2.25%) | 0.7557 (+0.08%) | 0.2256 (-1.96%) |
-| iRoPE + 去除 KV-Norm | 1.387e+5 (+2.95%) | 0.7557 (+0.08%) | 0.2256 (-1.96%) |
+| iRoPE + 去除 QK-Norm | 1.387e+5 (+2.95%) | 0.7597 (+0.61%) | 0.2216 (-3.69%) |
 | iRoPE + 缩小局部窗口 256 | 1.4161e+5 (+5.11%) | 0.7553 (+0.03%) | 0.231 (+0.39%) |
 | iRoPE + 缩小局部窗口 128 | 1.4291e+5 (+6.07%) | 0.7553 (+0.03%) | 0.2326 (+1.09%) |
 | iRoPE + 滑动窗口 LSSS | 1.3771e+5 (+2.21%) | 0.7573 (+0.29%) | 0.2335 (+1.48%) |
 | iRoPE + 滑动窗口 LSSS + 缩放 | 1.3748e+5 (+2.04%) | 0.7659 (+1.43%) | 0.2258 (-1.87%) |
 
-
 其中把第一个实验 RoPE 设置成为 baseline，同时使用了滑动窗口，局部窗口大小为 512，全局窗口大小为 2048，使用 1:3 的比例"SSSL"，即先经过 3 个局部窗口，再经过 1 个全局窗口。
 
-最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们得出的结果是统一乘 0.1，即 $ s\times 0.1$ ，并没有观察到论文中使用的 $\log$ 缩放因子.
+最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也使用一系列初等函数对在我们的预训练文本上得到的注意力 logit 进行拟合，结果是乘 0.1，即 $ s\times 0.1$ ，并没有观察到论文中使用的 $\log$ 缩放因子.
 
 分析结果可以看到，除了 NoPE 明显让模型能力下降，其他的模型和 RoPE 相比都没有很大差别。需要注意的是，这只是在小模型上表现出来的能力，指标也都具有偶然性；另外，之前的论文介绍更多的是聚焦模型上下文长度泛化的能力，而这里的 `CORE` 是对通用能力的考验，所以此次实验结果仅作为一个简单的参考。
 
 顺带一提，在运行这个实验的过程中，我们使用了 [SwanLab](https://swanlab.cn/) 来记录实验数据，这是一个对标 WandB 的国产工具，具有指标可视化记录、硬件监控、多人协作等功能。
 
-![alt text](swanlab.png)
+![SwanLab 实验结果图](swanlab.png)
 
 ## 7. 总结：让位置建模各司其职
 
