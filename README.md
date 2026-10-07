@@ -1,5 +1,46 @@
 # 从 RoPE 到 NoPE：长上下文中的位置建模正在重新分工
 
+## TL;DR
+
+**一句话**：RoPE 把位置先验直接写进架构；NoPE 把位置交给模型隐式学习。所以有一个趋势是**把两者结合分工**。
+
+- **RoPE 好在哪**：用绝对位置的旋转，得到只依赖相对距离的内积（"绝对进、相对出"）。
+- **RoPE 坏在哪**：注意力分数本质是一堆不同频率余弦波的叠加。上下文变长时，稳定的低频项越来越少、振荡的高频项越来越多。
+- **NoPE 凭什么可行**：decoder-only 的 causal mask 已经打破了置换对称性。构造性证明给出一个 head 就能数出绝对位置，后续层还能凑出加性的相对位置项。实测它的注意力模式最像 T5 relative bias。
+- **怎么混合**：p-RoPE 在一个 head 内留出一部分不旋转的语义通道（Gemma 4，$p=0.25$）；iRoPE 在层间让局部 RoPE 与全局 NoPE 交错（Llama 4）。iRoPE 要生效还得"给全局层留活干"：缩小局部窗口、NoPE 层去掉 QK-Norm、改用 LSSS 排列。
+
+## 目录
+
+- [1. RoPE：用绝对形式表达相对位置的优雅设计](#1-rope用绝对形式表达相对位置的优雅设计)
+  - [1.1 从二维旋转开始](#11-从二维旋转开始)
+  - [1.2 为什么最终表示的是相对位置](#12-为什么最终表示的是相对位置)
+  - [1.3 扩展到高维向量](#13-扩展到高维向量)
+  - [1.4 直观理解](#14-直观理解)
+- [2. 重新审视 RoPE：怎么失灵了](#2-重新审视-rope怎么失灵了)
+  - [2.1 从旋转矩阵到振荡信号](#21-从旋转矩阵到振荡信号)
+  - [2.2 四种失败模式](#22-四种失败模式)
+  - [2.3 RoPE base 不是免费的午餐](#23-rope-base-不是免费的午餐)
+- [3. NoPE：不显式注入位置信息，模型可以隐式地学习到位置吗](#3-nope不显式注入位置信息模型可以隐式地学习到位置吗)
+  - [3.1 NoPE 怎么学到绝对位置](#31-nope-怎么学到绝对位置)
+  - [3.2 NoPE 怎么学到相对位置](#32-nope-怎么学到相对位置)
+  - [3.3 界定学到的位置编码模式](#33-界定学到的位置编码模式)
+  - [3.4 长度泛化上的表现](#34-长度泛化上的表现)
+  - [3.5 小结](#35-小结)
+- [4. p-RoPE：只旋转部分通道](#4-p-rope只旋转部分通道)
+  - [4.1 RoPE 为什么有效](#41-rope-为什么有效)
+  - [4.2 p-RoPE 的定义](#42-p-rope-的定义)
+  - [4.3 p-RoPE 和增大 base](#43-p-rope-和增大-base)
+- [5. iRoPE：让局部位置和全局检索分层协作](#5-irope让局部位置和全局检索分层协作)
+  - [5.1 Llama 4 怎么使用 iRoPE](#51-llama-4-怎么使用-irope)
+  - [5.2 去除 NoPE 层的 QK-Norm](#52-去除-nope-层的-qk-norm)
+  - [5.3 缩小局部窗口长度](#53-缩小局部窗口长度)
+  - [5.4 改变滑动窗口结构和对注意力 logit 继续缩放](#54-改变滑动窗口结构和对注意力-logit-继续缩放)
+- [6. 实验验证](#6-实验验证)
+- [7. 总结：让位置建模各司其职](#7-总结让位置建模各司其职)
+- [参考文献](#参考文献)
+
+---
+
 当上下文长度从几千个 token 扩展到几十万，甚至更长时，语言模型遇到的瓶颈不只是显存和计算量,还有一个更基础的问题：**模型究竟应该如何理解“位置”？**
 
 在 Transformer 中，注意力机制本身并不知道两个 token 的先后顺序。为了让模型区分“我爱你”和“你爱我”，研究者引入了各种位置编码，RoPE 出现之前主要的研究可以大致区分成两类：绝对位置编码和相对位置编码。而 RoPE 凭借简洁、有效以及能融合相对位置编码和绝对位置编码的自然建模，成为大语言模型中的主流方案。
@@ -1086,3 +1127,36 @@ NoPE 则说明，显式位置编码并不是 decoder-only Transformer 获得位�
 p-RoPE 和 iRoPE 提供了两种分工方式：前者在一个 head 内保留部分旋转通道，同时留下不旋转的内容匹配通道；后者在不同层之间安排局部 RoPE 和全局 NoPE，让局部结构建模与远距离检索相互配合。iRoPE 的分工能否发挥作用，还取决于训练和注意力结构。局部窗口大小会影响全局层是否有足够动力学习检索，QK-Norm 会改变打分中可利用的幅度信息，层的排列顺序和 logits 缩放也会影响信息传递与注意力分布。因此，混合设计需要结合模型规模、数据和训练预算来判断。
 
 我们的 Nanochat 实验给出了一些初步信号：纯 NoPE 配合全局注意力时，通用能力指标明显下降；iRoPE 则整体接近 RoPE 基线。其中，把局部窗口缩小到 128 后，训练吞吐量提升约 6.07%，`CORE` 提升约 1.09%，`val_bpb` 基本持平；LSSS 排列取得了本组实验最高的 `CORE`，但额外缩放没有带来收益。
+
+---
+
+## 参考文献
+
+### 一、位置编码与 RoPE 基础（第 1 章）
+
+**[1]** 苏剑林. *让研究人员绞尽脑汁的 Transformer 位置编码*. 科学空间, 2021-02. [https://spaces.ac.cn/archives/8130](https://spaces.ac.cn/archives/8130)
+**[2]** 苏剑林. *Transformer 升级之路：2、博采众长的旋转式位置编码*. 科学空间, 2021. [https://spaces.ac.cn/archives/8265](https://spaces.ac.cn/archives/8265)
+**[3]** Jianlin Su et al. *RoFormer: Enhanced Transformer with Rotary Position Embedding*. *Neurocomputing*, 568: 127063, 2024. [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
+
+### 二、RoPE 的长上下文失效（第 2 章）
+
+**[4]** Yufeng Du et al. *RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably*. arXiv:2605.15514, 2026-05（NeurIPS 2026 在审）. [arXiv:2605.15514](https://arxiv.org/abs/2605.15514)
+
+### 三、NoPE 与隐式位置编码（第 3 章）
+
+**[5]** Amirhossein Kazemnejad et al. *The Impact of Positional Encoding on Length Generalization in Transformers*. NeurIPS 2023. [arXiv:2305.19466](https://arxiv.org/abs/2305.19466)
+
+### 四、混合设计：p-RoPE 与 iRoPE（第 4、5 章）
+
+**[6]** Federico Barbero et al. *Round and Round We Go! What makes Rotary Positional Encodings useful?*. arXiv:2410.06205, 2024-10（v3 修订于 2025-05）. [arXiv:2410.06205](https://arxiv.org/abs/2410.06205)
+**[7]** Bowen Yang et al. *Rope to Nope and Back Again: A New Hybrid Attention Strategy*. arXiv:2501.18795, 2025-01（v2 修订于 2025-10）. [arXiv:2501.18795](https://arxiv.org/abs/2501.18795)
+**[8]** Ziqing Qiao et al. *Rethinking the Role of Efficient Attention in Hybrid Architectures*. arXiv:2606.15378, 2026-06. [arXiv:2606.15378](https://arxiv.org/abs/2606.15378)
+**[9]** Krishna C. Puvvada et al. *SWAN-GPT: An Efficient and Scalable Approach for Long-Context Language Modeling*. arXiv:2504.08719, 2025-04. [arXiv:2504.08719](https://arxiv.org/abs/2504.08719)
+**[10]** Meta AI. *The Llama 4 Herd: The Beginning of a New Era of Natively Multimodal AI Innovation*. Meta AI Blog, 2025-04. [ai.meta.com/blog/llama-4-multimodal-intelligence](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)
+**[11]** Meta. *llama-models：Llama 4 model implementation*. GitHub, 2025. [models/llama4/model.py](https://github.com/meta-llama/llama-models/blob/main/models/llama4/model.py)
+
+### 五、评测与工具（第 6 章）
+
+**[12]** Greg Kamradt. *Needle In A Haystack（NIAH）*. GitHub, 2023-11. [https://github.com/gkamradt/needle-in-a-haystack](https://github.com/gkamradt/needle-in-a-haystack)
+**[13]** Jeffrey Li et al. *DataComp-LM: In Search of the Next Generation of Training Sets for Language Models*. NeurIPS 2024 Datasets and Benchmarks Track. [arXiv:2406.11794](https://arxiv.org/abs/2406.11794)
+**[14]** Andrej Karpathy. *nanochat*. GitHub, 2025-10. [github.com/karpathy/nanochat](https://github.com/karpathy/nanochat)
