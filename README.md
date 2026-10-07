@@ -372,7 +372,7 @@ $$
 
 论文的 Theorem 1 ：
 
-> 对输入 $\bm{x}=[\langle \mathrm{bos}\rangle, x_1,\ldots,x_T]^T$ ，NoPE 的第一层存在一组参数，使得隐状态 $\bm{H}^{(1)}$ 中恢复出绝对位置 $[1,\ldots,T+1]$。也就是说，我们可以找出一组 $\bm{W}_Q, \bm{W}_K, \bm{W}_V, \bm{W}_O, \bm{W}_1, \bm{W}_2$ 使得可以把第一层恢复的绝对位置写入到下一层的隐状态。
+> 对输入 $\bm{x}=[\langle \mathrm{bos}\rangle, x_2,\ldots,x_{T+1}]^T$ ，NoPE 的第一层存在一组参数，使得隐状态 $\bm{H}^{(1)}$ 中恢复出绝对位置 $[1,\ldots,T+1]$。也就是说，我们可以找出一组 $\bm{W}_Q, \bm{W}_K, \bm{W}_V, \bm{W}_O, \bm{W}_1, \bm{W}_2$ 使得可以把第一层恢复的绝对位置写入到下一层的隐状态。
 
 证明是构造性的，仅需使用隐藏状态的前三个维度。其余的注意力头只要不覆盖前三个维度，其具体形式可以是任意的。这在实践中并不会带来任何困难，因为实际使用的 Transformer 模型通常具有非常大的模型维度。
 
@@ -433,7 +433,7 @@ $$
 
 $h$ 代表注意力一个头的维度。
 
-一个输入序列 $x$ 写成 one-hot 矩阵 $\bm{X}=[\bm{x}_0, \bm{x}_1,\ldots,\bm{x}_T]\in\mathbb{R}^{V\times(T+1)}$ , 每一列是一个 token 的 one-hot 项量， $\bm{x}_0$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量，经过 $\bm{W}_E$ 得到隐状态 $\bm{H}^{(0)}$ . 因为 $\bm{x}_i$ 是 one-hot，其实就是把 $\bm{W}_E$ 的列按 token 的词表 id 重新排列，把 $\text{id}(\bm{x}_i)$ 记作该 token 对应的词表 id, 也就是说 $\text{id}(\langle \mathrm{bos}\rangle)=1$. 
+把输入序列写成 one-hot 矩阵 $\bm{X}=[\bm{x}_1, \bm{x}_2,\ldots,\bm{x}_{T+1}]\in\mathbb{R}^{V\times(T+1)}$ ，每一列是一个 token 的 one-hot 向量，第 $t$ 列 $\bm{x}_t$ 位于绝对位置 $t$，其中首列 $\bm{x}_1$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量。左乘 $\bm{W}_E$ 得到隐状态 $\bm{H}^{(0)}$ 。因为 $\bm{x}_t$ 是 one-hot，这一步本质上就是把 $\bm{W}_E$ 的列按 token 的词表 id 重新排列；把 $\text{id}(\bm{x}_t)$ 记作第 $t$ 个 token 对应的词表 id，则有 $\text{id}(\bm{x}_1)=\text{id}(\langle \mathrm{bos}\rangle)=1$。
 
 $$
 \bm{H}^{(0)}=\bm{W}_E\bm{X}
@@ -445,13 +445,13 @@ e_{4,1} & e_{4,2} & e_{4,3} & \cdots & e_{4,V}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 \begin{bmatrix}
-\bm{x}_0 & \bm{x}_1 & \cdots & \bm{x}_T
+\bm{x}_1 & \bm{x}_2 & \cdots & \bm{x}_{T+1}
 \end{bmatrix}
 =\begin{bmatrix}
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_1)} & e_{4,\text{id}(\bm{x}_2)} & \cdots & e_{4,\text{id}(\bm{x}_T)}\\
+e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}_{d\times (T+1)}.
 $$
@@ -469,7 +469,7 @@ $$
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_1)} & e_{4,\text{id}(\bm{x}_2)} & \cdots & e_{4,\text{id}(\bm{x}_T)}\\
+e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 =\begin{bmatrix}
@@ -480,7 +480,7 @@ e_{4,1} & e_{4,\text{id}(\bm{x}_1)} & e_{4,\text{id}(\bm{x}_2)} & \cdots & e_{4,
 \end{bmatrix}_{h\times (T+1)}.
 $$
 
-既然 $\bm{W}_Q$ 矩阵是任意的，那么不妨考虑 $t\in [1,T]$ 时, 位置 $t$ 的 query  $\bm{q}_t=\bm{W}_Q\bm{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in \mathbb{R}^{h\times 1}$ (序列还有 $\langle \mathrm{bos}\rangle$ 是 $\bm{x}_1$). 在 causal mask 下，位置 $t$ 只与 $i\le t$ 的 key 交互。将可见的 $t$ 个 key 按列拼成
+$\bm{W}_Q$ 可以任意取，所以不妨直接考察位于绝对位置 $t\in[1,T+1]$ 的 query：$\bm{q}_t=\bm{W}_Q\bm{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in\mathbb{R}^{h\times 1}$。在 causal mask 下，位置 $t$ 的 query 只能与 $i\le t$ 的 key 交互，也就是说它恰好能看见自己以及之前的全部 $t$ 个 token，其中就包含位于位置 $1$ 的 $\langle\mathrm{bos}\rangle$。把这 $t$ 个可见 key 按列拼成
 
 $$
 \bm{K}_t=\begin{bmatrix}
@@ -521,7 +521,7 @@ $$
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_1)} & e_{4,\text{id}(\bm{x}_2)} & \cdots & e_{4,\text{id}(\bm{x}_T)}\\
+e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 =\begin{bmatrix}
@@ -535,18 +535,18 @@ $$
 
 其中 $\bm{V}_t=\begin{bmatrix}
 \bm{v}_1, \bm{v}_2, \cdots, \bm{v}_t
-\end{bmatrix}$，只有 $\bm{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T$，其余都是 $\bm{0}$ 向量。
+\end{bmatrix}$ 取 $\bm{V}$ 的前 $t$ 列。由于 $\langle\mathrm{bos}\rangle$ 位于位置 $1$，$\bm{V}$ 唯一的非零列就是 $\bm{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T$，而 $\bm{v}_2,\ldots,\bm{v}_t$ 都是 $\bm{0}$ 向量。
 
 再对 value 加权求和，只有 $\langle \mathrm{bos}\rangle$ 贡献了 $1$，所以
 
 $$
-\hat{\bm{o}}_t=\sum_{i\le t}\alpha_i\bm{v}_i
+\hat{\bm{o}}_t=\sum_{i\le t}\alpha_{t,i}\bm{v}_i
 =\frac{1}{t}\sum_{i\le t}\bm{v}_i=\begin{bmatrix}
 \frac{1}{t} \\ 0 \\ \vdots \\ 0
 \end{bmatrix}.
 $$
 
-最后经过 $\bm{W}_O$ 矩阵，得到 $t$ 个 token 的注意力输出：
+最后经过 $\bm{W}_O$ 矩阵，得到绝对位置 $t$ 处这个 query 的注意力输出：
 
 $$
 \bm{o}_t=\bm{W}_O\hat{\bm{o}}_t=\begin{bmatrix}
@@ -563,7 +563,7 @@ $$
 \end{bmatrix}.
 $$
 
-**注意力输出的第 3 维，恰好是绝对位置的倒数 $1/t$。**
+**注意力输出的第 3 维，恰好是绝对位置 $t$ 的倒数 $1/t$。**（$t=1$ 时 $\langle\mathrm{bos}\rangle$ 只看见自己，得到 $1$。）
 
 #### 第三步，用 FFN 把 $1/t$ 还原成 $t$
 
@@ -577,7 +577,7 @@ $$
 
 这个构造里有两个关键点：
 
-- causal mask： 决定 query 能看见 $t$ 个 key，把“可见长度”变成位置计数器
+- causal mask：让绝对位置 $t$ 上的 query 恰好能看见 $t$ 个 key，把“可见长度”变成位置计数器；
 - $\langle \mathrm{bos}\rangle$（或任意锚点 token）: 打破平移对称，给计数提供原点；实际使用中的 instruction / prompt 就在扮演这个角色
 
 ### 3.2 NoPE 怎么学到相对位置
@@ -1065,7 +1065,7 @@ $$
 | iRoPE + 滑动窗口 LSSS | 1.3771e+5 (+2.21%) | 0.7573 (+0.29%) | 0.2335 (+1.48%) |
 | iRoPE + 滑动窗口 LSSS + 缩放 | 1.3748e+5 (+2.04%) | 0.7659 (+1.43%) | 0.2258 (-1.87%) |
 
-其中把第一个实验 RoPE 设置成为 baseline，同时使用了滑动窗口，局部窗口大小为 512，全局窗口大小为 2048，使用 1:3 的比例"SSSL"，即先经过 3 个局部窗口，再经过 1 个全局窗口。
+其中把第一个实验 RoPE 设置成为 baseline，同时使用了滑动窗口，局部窗口大小为 512，全局窗口大小为 2048，使用 1:3 的比例"SSSL"，即先经过 3 个局部窗口，再经过 1 个全局窗口。而考虑到 NoPE 更多地是对长上下文有帮助，所以没有使用滑动窗口（我们也进行了使用 NoPE 和滑动窗口的实验，表现确实不如 NoPE 配上不使用滑动窗口）。
 
 最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也使用一系列初等函数对在我们的预训练文本上得到的注意力 logit 进行拟合，结果是乘 0.1，即 $ s\times 0.1$ ，并没有观察到论文中使用的 $\log$ 缩放因子.
 
