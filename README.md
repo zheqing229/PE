@@ -130,9 +130,13 @@ $$
 &=\begin{bmatrix}
 \cos(\Delta) & -\sin(\Delta)\\
 \sin(\Delta) & \cos(\Delta)
-\end{bmatrix}\begin{bmatrix} k_1\\k_2\end{bmatrix}\\
-&=\begin{bmatrix}k_1\cos\Delta-k_2\sin\Delta\\k_1\sin\Delta+k_2\cos\Delta\end{bmatrix}\\
-&=\begin{bmatrix} k_1 \\ k_2 \end{bmatrix}\cos\Delta + \begin{bmatrix} -k_2\\k_1\end{bmatrix}\sin\Delta\\
+\end{bmatrix}\begin{bmatrix} k_1\\
+k_2\end{bmatrix}\\
+&=\begin{bmatrix}k_1\cos\Delta-k_2\sin\Delta\\
+k_1\sin\Delta+k_2\cos\Delta\end{bmatrix}\\
+&=\begin{bmatrix} k_1 \\
+k_2 \end{bmatrix}\cos\Delta + \begin{bmatrix} -k_2\\
+k_1\end{bmatrix}\sin\Delta\\
 &= \boldsymbol{k}\cos\Delta+\boldsymbol{k}^\perp\sin\Delta
 \end{aligned},
 $$
@@ -539,7 +543,10 @@ $$
 
 $$
 \boldsymbol{s}_t=\boldsymbol{K}_t^{\mathsf T}\boldsymbol{q}_t=\boldsymbol{1}_{t\times h}\begin{bmatrix}
-q_1 \\ q_2 \\ \vdots \\ q_h
+q_1 \\
+q_2 \\
+\vdots \\
+q_h
 \end{bmatrix}
 =\begin{bmatrix}
 \sum_i q_i\\
@@ -600,7 +607,10 @@ $$
 $$
 \hat{\boldsymbol{o}}_t=\sum_{i\le t}\alpha_{t,i}\boldsymbol{v}_i
 =\frac{1}{t}\sum_{i\le t}\boldsymbol{v}_i=\begin{bmatrix}
-\frac{1}{t} \\ 0 \\ \vdots \\ 0
+\frac{1}{t} \\
+0 \\
+\vdots \\
+0
 \end{bmatrix}.
 $$
 
@@ -615,9 +625,17 @@ $$
 \vdots & \vdots & \vdots & \ddots & \vdots\\
 0 & 0 & 0 & \cdots & 0
 \end{bmatrix}\begin{bmatrix}
-\frac{1}{t} \\ 0 \\ \vdots \\ 0
+\frac{1}{t} \\
+0 \\
+\vdots \\
+0
 \end{bmatrix}=\begin{bmatrix}
-0 \\ 0 \\ \frac{1}{t} \\ 0 \\ \vdots \\ 0
+0 \\
+0 \\
+\frac{1}{t} \\
+0 \\
+\vdots \\
+0
 \end{bmatrix}.
 $$
 
@@ -691,10 +709,17 @@ w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}
 \begin{bmatrix}
-1\\0\\t\\h_{4,t}\\ \vdots 
+1\\
+0\\
+t\\
+h_{4,t}\\
+\vdots 
 \end{bmatrix}
 =\begin{bmatrix}
-1\\ -t\\ q_3\\ \vdots
+1\\
+-t\\
+q_3\\
+\vdots
 \end{bmatrix}.
 $$
 
@@ -710,10 +735,17 @@ w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}
 \begin{bmatrix}
-1 \\ 0 \\ i \\ h_{4,i} \\ \vdots 
+1 \\
+0 \\
+i \\
+h_{4,i} \\
+\vdots 
 \end{bmatrix}
 =\begin{bmatrix}
-i \\ 1 \\ k_{3,i} \\ \vdots
+i \\
+1 \\
+k_{3,i} \\
+\vdots
 \end{bmatrix}
 $$
 
@@ -728,7 +760,10 @@ $$
 1 & -t & q_3 & \cdots
 \end{bmatrix}}_{\boldsymbol{q}_t^{\mathsf T}}\;
 \underbrace{\begin{bmatrix}
-i \\ 1 \\ k_{3,i} \\ \vdots
+i \\
+1 \\
+k_{3,i} \\
+\vdots
 \end{bmatrix}}_{\boldsymbol{k}_i}=
 1\cdot i + (-t)\cdot 1 + \sum_{j=3}^{h} q_j k_{j,i}\\
 &= \underbrace{\sum_{j=3}^{h} q_j k_{j,i}}_{f_{\mathrm{content}}(\boldsymbol{q},\boldsymbol{k})}
