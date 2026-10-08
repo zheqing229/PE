@@ -190,7 +190,7 @@ s(m,n)
 k_n^{(i)}.
 $$
 
-随后加上因果掩码（不可见位置置 $-\infty$ ），再经 softmax 得到注意力权重 $\alpha(m,n)=\mathrm{softmax}_n\,s(m,n)$ 。
+随后加上因果掩码（不可见位置置 $-\infty$ ），再经 softmax 得到注意力权重 $\alpha(m,n)=\mathrm{softmax}_ns(m,n)$ 。
 
 ### 1.4 直观理解
 
@@ -204,12 +204,12 @@ $$
 
 于是**指针的绝对角度（相位）唯一地携带了绝对位置 $m$** 。到这里为止，RoPE 注入的还是绝对信息。
 
-真正的关键在内积的复数写法。实内积等于 $\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle=\mathrm{Re}\bigl(z^{(m)}_q\,\overline{z^{(n)}_k}\bigr)$ , 注意第二个因子要取共轭，共轭把相位取反： $e^{\mathrm{i}n\theta}\to e^{-\mathrm{i}n\theta}$ 。因此
+真正的关键在内积的复数写法。实内积等于 $\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle=\mathrm{Re}\bigl(z^{(m)}_q\overline{z^{(n)}_k}\bigr)$ , 注意第二个因子要取共轭，共轭把相位取反： $e^{\mathrm{i}n\theta}\to e^{-\mathrm{i}n\theta}$ 。因此
 
 $$
-z^{(m)}_q\,\overline{z^{(n)}_k}
-=\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}m\theta}e^{-\mathrm{i}n\theta}
-=\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}(m-n)\theta}.
+z^{(m)}_q\overline{z^{(n)}_k}
+=\bigl(z_q\overline{z_k}\bigr)e^{\mathrm{i}m\theta}e^{-\mathrm{i}n\theta}
+=\bigl(z_q\overline{z_k}\bigr)e^{\mathrm{i}(m-n)\theta}.
 $$
 
 两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$ ，实现了“绝对进、相对出”。
@@ -288,7 +288,7 @@ $$
 
 记 $\lambda(L)=\Theta(h\log_B L)$ ：
 
-- $ n \ll \lambda(L)$ ：转得比一圈还多 → 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
+- $n \ll \lambda(L)$ ：转得比一圈还多 → 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
 - $n \gg \lambda(L)$ ：转一个非常小的角度 → 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
 
 论文的关键分析是：当距离 $r$ 从一个足够长的区间中采样时，可以借助中心极限定理，把这个余弦和近似看成正态随机变量
@@ -316,10 +316,10 @@ $$
 
 $$
 \begin{aligned}
-\mathbb{E}[\cos\beta]&\approx\int_{0}^{2\pi}\cos\beta \cdot \frac{1}{2\pi}\,d\beta=0\\
+\mathbb{E}[\cos\beta]&\approx\int_{0}^{2\pi}\cos\beta \cdot \frac{1}{2\pi}d\beta=0\\
 \mathbb{E}\left[\cos^2\beta\right]
-&\approx\int_{0}^{2\pi}\cos^2\beta \cdot \frac{1}{2\pi}\,d\beta \\
-&=\frac{1}{2\pi}\int_{0}^{2\pi}\frac{1+\cos2\beta}{2}\,d\beta \\
+&\approx\int_{0}^{2\pi}\cos^2\beta \cdot \frac{1}{2\pi}d\beta \\
+&=\frac{1}{2\pi}\int_{0}^{2\pi}\frac{1+\cos2\beta}{2}d\beta \\
 &=\frac{1}{4\pi}\left(2\pi+\left.\frac12\sin2\beta\right|_{0}^{2\pi}\right) \\
 &=\frac12
 \end{aligned}
@@ -374,6 +374,7 @@ $$
 论文给出了一个正态分布拟合注意力分数的图.
 
 ![正态分布拟合注意力分数图](NormalApprox.png)
+
 *使用正态分布拟合注意力分数，图片来源：RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably*
 
 ### 2.2 四种失败模式
@@ -473,7 +474,13 @@ $$
 
 $h$ 代表注意力一个头的维度。
 
-把输入序列写成 one-hot 矩阵 $\boldsymbol{X}=[\boldsymbol{x}_1, \boldsymbol{x}_2,\ldots,\boldsymbol{x}_{T+1}]\in\mathbb{R}^{V\times(T+1)}$ ，每一列是一个 token 的 one-hot 向量，第 $t$ 列 $\boldsymbol{x}_t$ 位于绝对位置 $t$ ，其中首列 $\boldsymbol{x}_1$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量。左乘 $\boldsymbol{W}_E$ 得到隐状态 $\boldsymbol{H}^{(0)}$ 。因为 $\boldsymbol{x}_t$ 是 one-hot，这一步本质上就是把 $\boldsymbol{W}_E$ 的列按 token 的词表 id 重新排列；把 $\text{id}(\boldsymbol{x}_t)$ 记作第 $t$ 个 token 对应的词表 id，则有 $\text{id}(\boldsymbol{x}_1)=\text{id}(\langle \mathrm{bos}\rangle)=1$ 。
+把输入序列写成 one-hot 矩阵 
+
+$$
+\boldsymbol{X}=[\boldsymbol{x}_1, \boldsymbol{x}_2,\ldots,\boldsymbol{x}_{T+1}]\in\mathbb{R}^{V\times(T+1)},
+$$ 
+
+每一列是一个 token 的 one-hot 向量，第 $t$ 列 $\boldsymbol{x}_t$ 位于绝对位置 $t$ ，其中首列 $\boldsymbol{x}_1$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量。左乘 $\boldsymbol{W}_E$ 得到隐状态 $\boldsymbol{H}^{(0)}$ 。因为 $\boldsymbol{x}_t$ 是 one-hot，这一步本质上就是把 $\boldsymbol{W}_E$ 的列按 token 的词表 id 重新排列；把 $\text{id}(\boldsymbol{x}_t)$ 记作第 $t$ 个 token 对应的词表 id，则有 $\text{id}(\boldsymbol{x}_1)=\text{id}(\langle \mathrm{bos}\rangle)=1$ 。
 
 $$
 \boldsymbol{H}^{(0)}=\boldsymbol{W}_E\boldsymbol{X}
@@ -573,9 +580,20 @@ e_{4,1} & e_{4,\text{id}(\boldsymbol{x}_2)} & e_{4,\text{id}(\boldsymbol{x}_3)} 
 \end{bmatrix}_{h\times (T+1)}.
 $$
 
-其中 $\boldsymbol{V}_t=\begin{bmatrix}
+其中 
+
+$$\boldsymbol{V}_t=\begin{bmatrix}
 \boldsymbol{v}_1, \boldsymbol{v}_2, \cdots, \boldsymbol{v}_t
-\end{bmatrix}$ 取 $\boldsymbol{V}$ 的前 $t$ 列。由于 $\langle\mathrm{bos}\rangle$ 位于位置 $1$ ， $\boldsymbol{V}$ 唯一的非零列就是 $\boldsymbol{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T$ ，而 $\boldsymbol{v}_2,\ldots,\boldsymbol{v}_t$ 都是 $\boldsymbol{0}$ 向量。
+\end{bmatrix},
+$$ 
+
+取 $\boldsymbol{V}$ 的前 $t$ 列。由于 $\langle\mathrm{bos}\rangle$ 位于位置 $1$ ， $\boldsymbol{V}$ 唯一的非零列就是 
+
+$$
+\boldsymbol{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T,
+$$
+
+而 $\boldsymbol{v}_2,\ldots,\boldsymbol{v}_t$ 都是 $\boldsymbol{0}$ 向量。
 
 再对 value 加权求和，只有 $\langle \mathrm{bos}\rangle$ 贡献了 $1$ ，所以
 
@@ -625,6 +643,7 @@ $$
 论文 Theorem 2：
 
 > 若 $\boldsymbol{H}^{(1)}$ 中已含有绝对位置（且不被后续层覆盖），则 $l\ge 2$ 的自注意力可以实现相对位置编码：存在参数化使得
+>
 > $$
 > \langle \boldsymbol{q}_t, \boldsymbol{k}_i\rangle = f_{\mathrm{content}}(\boldsymbol{q}_t,\boldsymbol{k}_i) + f_{\mathrm{relative}}(t-i).
 > $$
@@ -736,6 +755,7 @@ D^{(l)}(A,B)=\min_{(P,Q)\in A_l\times B_l}\frac1T\sum_{t=1}^{T}D_{\mathrm{JS}}\b
 $$
 
 ![NoPE 和其他位置编码的 JS 散度图](JS-NoPE.png)
+
 *SCAN数据集上，NoPE注意力模式相对于其他位置编码方案的距离。左图是逐层距离，右图为全层平均距离。NoPE'是换随机种子训练的NoPE。图片来源：The Impact of Positional Encoding on Length Generalization in Transformers*
 
 两个分布越像， $D_{\mathrm{JS}}$ 越小，而两个分布差异越大，则 $D_{\mathrm{JS}}$ 越大。
@@ -750,6 +770,7 @@ $$
 注意力距离的分布也印证了这一点：NoPE 和 T5 RPE 都呈现出“近处 + 远处”的双峰注意力（既有短程依赖，也会回看输入），而 ALiBi 因为 recency bias 强烈偏向近邻，Rotary 则更接近 APE 的均匀分布。
 
 ![各位置编码的注意力距离分布图](normalized_attended_distance.png)
+
 *自注意力机制中Query与Key的归一化距离分布（加法任务 + 完整草稿本），在所有层与所有注意力头上取平均。图片来源：The Impact of Positional Encoding on Length Generalization in Transformers*
 
 ### 3.4 长度泛化上的表现
@@ -840,9 +861,7 @@ RoPE 的频率本身是设定好了的，这里讨论的是模型通过学习 qu
 忽略 $1/\sqrt d$ 缩放，RoPE 分数可以写为
 
 $$
-s(m,n)
-=
-\sum_{i=1}^{d/2}
+s(m,n)=\sum_{i=1}^{d/2}
 \underbrace{
 \left(q_m^{(i)}\right)^\top
 \boldsymbol{R}\!\left((n-m)\theta_i\right)
@@ -1100,7 +1119,7 @@ $$
 
 其中把第一个实验 RoPE 设置成为 baseline，同时使用了滑动窗口，局部窗口大小为 512，全局窗口大小为 2048，使用 1:3 的比例"SSSL"，即先经过 3 个局部窗口，再经过 1 个全局窗口。而考虑到 NoPE 更多地是对长上下文有帮助，所以没有使用滑动窗口（我们也进行了使用 NoPE 和滑动窗口的实验，表现确实不如 NoPE 配上不使用滑动窗口）。
 
-最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也采集了一批预训练文本的数据，但是并没有观察到论文中使用的 $\log$ 缩放因子，所以我们尝试使用初等函数拟合，结果是一个常函数，最终等价于温度为 0.1, 即 $ \frac{s}{0.1}$ ，以此作为一个简单的复现尝试。
+最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也采集了一批预训练文本的数据，但是并没有观察到论文中使用的 $\log$ 缩放因子，所以我们尝试使用初等函数拟合，结果是一个常函数，最终等价于温度为 0.1, 即 $\frac{s}{0.1}$ ，以此作为一个简单的复现尝试。
 
 分析结果可以看到，除了 NoPE 和 p-RoPE 明显让模型能力下降，其他的模型和 RoPE 相比都没有很大差别。需要注意的是，这只是在小模型上表现出来的能力，指标也都具有偶然性；另外，之前的论文介绍更多的是聚焦模型上下文长度泛化的能力，而这里的 `CORE` 是对通用能力的考验，所以此次实验结果仅作为一个简单的参考。
 
