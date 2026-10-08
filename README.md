@@ -35,7 +35,7 @@
   - [5.2 去除 NoPE 层的 QK-Norm](#52-去除-nope-层的-qk-norm)
   - [5.3 缩小局部窗口长度](#53-缩小局部窗口长度)
   - [5.4 改变滑动窗口结构和对注意力 logit 继续缩放](#54-改变滑动窗口结构和对注意力-logit-继续缩放)
-- [6. 实验验证](#6-实验验证)
+- [6. 通用能力与训练效率的初步实验](#6-通用能力与训练效率的初步实验)
 - [7. 总结：让位置建模各司其职](#7-总结让位置建模各司其职)
 - [参考文献](#参考文献)
 
@@ -233,7 +233,7 @@ $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$�
 
 ## 2. 重新审视 RoPE：怎么失灵了
 
-当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，高频维度的旋转角度会进入模型从未见过的相位区间，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中可能需要依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
+当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，外推改变了相对距离及多频率相位组合的分布，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中可能需要依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
 
 此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](https://arxiv.org/abs/2605.15514) 提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
 
@@ -249,7 +249,7 @@ $$
 \begin{aligned}
 \langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle
 &=A\cos\bigl((n-m)\theta\bigr)+B\sin\bigl((n-m)\theta\bigr)\\
-&=C\cos\bigl((n-m)\theta+\phi\bigr)\\
+&=C\cos\bigl((n-m)\theta-\phi\bigr)\\
 \end{aligned},
 \begin{aligned}
 \phi&=\arctan2(B,A)\\
@@ -807,7 +807,7 @@ $$
 那么我们构造 $k=\bm{R}^{\delta}\bm{q}$ ，则有 
 
 $$
-s(\delta)=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{R}^{\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{q}=\|\bm{q}\|^2.
+s(\delta)=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{k}=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{R}^{\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{q}=\|\bm{q}\|^2.
 $$
 
 将这个构造的 $k$ 代入到其他任意距离 $r$ 的 $s(r)$ 中，则有
@@ -1082,7 +1082,7 @@ $$
 
 论文认为这个拟合的函数和信息论相对应，全局注意力中，参与 softmax 竞争的 token 数量随序列长度 $N$ 线性增加。根据 Shannon 信息论，区分 $N$ 个均匀符号所需的信息量恰好是 $\log N$ 。
 
-## 6. 实验验证
+## 6. 通用能力与训练效率的初步实验
 
 我们选择了 Karpathy 的 [Nanochat](https://github.com/karpathy/nanochat) 项目来进行验证以上关于位置编码的探讨。
 
@@ -1162,9 +1162,9 @@ p-RoPE 和 iRoPE 提供了两种分工方式：前者在一个 head 内保留部
 
 **[11]** Meta. *llama-models：Llama 4 model implementation*. GitHub, 2025. [models/llama4/model.py](https://github.com/meta-llama/llama-models/blob/main/models/llama4/model.py)
 
-### 五、评测与工具（第 6 章）
-
 **[12]** Greg Kamradt. *Needle In A Haystack（NIAH）*. GitHub, 2023-11. [https://github.com/gkamradt/needle-in-a-haystack](https://github.com/gkamradt/needle-in-a-haystack)
+
+### 五、评测与工具（第 6 章）
 
 **[13]** Jeffrey Li et al. *DataComp-LM: In Search of the Next Generation of Training Sets for Language Models*. NeurIPS 2024 Datasets and Benchmarks Track. [arXiv:2406.11794](https://arxiv.org/abs/2406.11794)
 
