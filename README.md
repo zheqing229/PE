@@ -160,14 +160,14 @@ $$
 实际模型中的 head dimension 通常为偶数 $d$。RoPE 将向量按两维一组，给第 $i$ 组使用不同频率
 
 $$
-\theta_i=10000^{-2i/d},\qquad i=1,\ldots,\frac d2.
+\theta_i=10000^{-2(i-1)/d},\qquad i=1,\ldots,\frac d2.
 $$
 
 整体旋转矩阵是一个分块对角矩阵：
 
 $$
 \bm{R}_m=\mathrm{diag}\bigl(
-\bm{R}(m\theta_0),\bm{R}(m\theta_1),\ldots,\bm{R}(m\theta_{\frac{d}{2}-1})
+\bm{R}(m\theta_1),\bm{R}(m\theta_2),\ldots,\bm{R}(m\theta_{\frac{d}{2}})
 \bigr).
 $$
 
@@ -220,7 +220,7 @@ $$
 
 **（c）多频率**
 
-$d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$）：
+$d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2(i-1)/d}$）：
 
 - **高频指针**转得快，相邻位置也有明显相位差，分辨率高、能精细区分近邻；但转过一整圈后相位开始复用，长距离上会出现周期性混叠。
 - **低频指针**转得慢，在很长距离上都近似单调变化，能覆盖长程依赖，但近处区分度低。
@@ -243,34 +243,34 @@ $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2i/d}$�
 $\langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle=\langle \bm{q}_m,\bm{k}_n\rangle\cos\bigl((n-m)\theta\bigr)
 +\langle \bm{q}_m,\bm{k}_n^\perp\rangle\sin\bigl((n-m)\theta\bigr)$.
 
-把 $\langle \bm{q}_m,\bm{k}_n\rangle$ 和 $\langle \bm{q}_m,\bm{k}_n^\perp\rangle$ 分别记作 $A$ 和 $B$，则有
+把 $\langle \bm{q}_m,\bm{k}_n\rangle$ 和 $\langle \bm{q}_m,\bm{k}_n^\perp\rangle$ 分别记作 $A$ 和 $D$，则有
 
 $$
 \begin{aligned}
 \langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle
-&=A\cos\bigl((n-m)\theta\bigr)+B\sin\bigl((n-m)\theta\bigr)\\
+&=A\cos\bigl((n-m)\theta\bigr)+D\sin\bigl((n-m)\theta\bigr)\\
 &=C\cos\bigl((n-m)\theta-\phi\bigr)\\
 \end{aligned},
 \begin{aligned}
-\phi&=\arctan2(B,A)\\
-C&=\sqrt{A^2+B^2}
+\phi&=\arctan2(D,A)\\
+C&=\sqrt{A^2+D^2}
 \end{aligned}
 $$
 
-其中 $A$, $B$, $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
+其中 $A$, $D$, $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
 
 我们把二维的公式拓展到 $d=2h$ 维，把 query 与 key 的相对距离记为 $r$。每两个维度合并后，RoPE 作用下的未归一化注意力分数就可以写成
 
 $$
 s_{\bm{q},\bm{k}}(r)
-=\sum_{n=0}^{h-1}C_n\cos(r\theta_n+\phi_n).
+=\sum_{n=1}^{h}C_n\cos(r\theta_n-\phi_n).
 $$
 
-$\theta_n=B^{-n/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
+$\theta_n=B^{-(n-1)/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention score 本质上是许多不同频率余弦波的叠加。
 
 接下来我们尝试把这些余弦波按照在上下文长度 $L$ 内转得快还是慢分成两堆。
 
-对第 $n$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_n$ 变成 $r\theta_n + \phi_n$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_n$ 弧度。
+对第 $n$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_n$ 变成 $r\theta_n - \phi_n$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_n$ 弧度。
 
 - 如果存在 $r < L$ 使得 $r\theta_n \gtrsim 2\pi$，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
 - 而如果所有 $r$ 都有 $r\theta_n \ll \pi$，则这个分量**只扫过一小段圆弧**，$\cos$ 值几乎单调缓降。
@@ -280,7 +280,7 @@ $\theta_n=B^{-n/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention sco
 $$
 L \cdot \theta_n \approx 2\pi
 \quad\Longrightarrow\quad
-L \cdot B^{-n/h} \approx 2\pi
+L \cdot B^{-(n-1)/h} \approx 2\pi
 \Longrightarrow
 n \approx h \log_B\!\frac{L}{2\pi}
 = \Theta(h\log_B L).
@@ -305,12 +305,12 @@ $$
 当 $\bm{q},\bm{k}$ 固定后，$C_n,\phi_n$ 就定了，$s(r)$ 只是 $\bm{q}$ 和 $\bm{k}$ 的相对距离 $r$ 的函数：
 
 $$
-s(r)=\sum_{n=0}^{h-1} \underbrace{C_n\cos(r\theta_n+\phi_n)}_{\Psi_n(r)}.
+s(r)=\sum_{n=1}^{h} \underbrace{C_n\cos(r\theta_n-\phi_n)}_{\Psi_n(r)}.
 $$
 
 我们尝试描述距离 $r$ 的分布是**在上下文长度 $[0,L)$ 上均匀分布**的。那么每个 $\Psi_n$ 就是一个随机变量，从而 $s$ 也是随机变量。所以问题变成：$s$ 的分布长什么样？
 
-我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$，$\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时，$\beta(r) = r\theta_n + \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\beta(r)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\beta$ 近似**均匀分布在 $[0,2\pi)$**，概率密度 $p(\beta)\approx\frac{1}{2\pi},\quad 0\le \beta < 2\pi$
+我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$，$\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时，$\beta(r) = r\theta_n - \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\beta(r)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\beta$ 近似**均匀分布在 $[0,2\pi)$**，概率密度 $p(\beta)\approx\frac{1}{2\pi},\quad 0\le \beta < 2\pi$
  
 可以得到：
 
@@ -339,8 +339,7 @@ $$
 再看**低频项**，低频项给我一种“冰冻”的感觉。当 $n \gg \lambda(L)$，$\theta_n$ 很小，$r\in[0,L)$ 时 $r\theta_n$ 扫过的角度非常小(O(1))：
 
 $$
-r\theta_n+\phi_n \approx \phi_n,\qquad
-\cos(r\theta_n+\phi_n)\approx \cos\phi_n.
+ r\theta_n-\phi_n \approx -\phi_n,\qquad \cos(r\theta_n-\phi_n)\approx \cos(-\phi_n)=\cos\phi_n. 
 $$
 
 也就是说这个余弦几乎不随 $r$ 变，像一个常数：
@@ -355,10 +354,10 @@ $$
 此时我们注意到：
 
 **(a) 各频率项近似独立。**
-$\theta=B^{-1/h}$ 时，序列 $1,\theta,\theta^2,\ldots$ 在有理数集 $\mathbb{Q}$ 上几乎线性无关（Weyl 等分布准则），$\theta_n=B^{-n/h}=\theta^n$，于是 $r\theta_n \bmod 2\pi$ 对不同 $n$ 近似独立均匀。论文估计协方差 $\mathrm{Cov}[\Psi_n\Psi_p]=O(\frac{C_nC_p}{L\theta_n})$，高频时极小可忽略。
+$\theta_1=B^{0/h}=1$, $\theta_n=B^{-(n-1)/h}=\theta^{n-1}$，序列 $1,\theta,\theta^2,\ldots$ 在有理数集 $\mathbb{Q}$ 上几乎线性无关（Weyl 等分布准则），于是 $r\theta_n \bmod 2\pi$ 对不同 $n$ 近似独立均匀。论文估计协方差 $\mathrm{Cov}[\Psi_n\Psi_p]=O(\frac{C_nC_p}{L\theta_n})$，高频时极小可忽略。
 
 **(b) 中心极限定理。**
-高频项 $\sum_{n<\lambda(L)} C_n\cos(r\theta_n+\phi_n)$ 是许多独立、均值为 0、无单项主导的随机项之和，渐近正态。Berry–Esseen 给出误差 $O(1/\sqrt{\lambda(L)})$。
+高频项 $\sum_{n<\lambda(L)} C_n\cos(r\theta_n-\phi_n)$ 是许多独立、均值为 0、无单项主导的随机项之和，渐近正态。Berry–Esseen 给出误差 $O(1/\sqrt{\lambda(L)})$。
 
 再加上低频项近似常数，整体就是：
 
@@ -1006,7 +1005,7 @@ $$
 
 $$
  a_{i,j}^{\mathrm{QK\text{-}Norm}}
-=\tau\hat{\bm q}_i^{\mathsf T}\hat{\bm k}_j.
+=\frac{\hat{\bm q}_i^{\mathsf T}\hat{\bm k}_j}{\tau}.
 $$
 
 其中 $\tau$ 是可学习或预设的温度参数。这样做通常有助于缓解训练初期的数值不稳定，但也会抹掉 query 和 key 的范数信息。QK-Norm 能有效防止 Softmax 饱和，使注意力分数的分布更加平滑。这直接减少了训练过程中的损失尖峰，让更大、更深的模型能够稳定地训练下去。
@@ -1057,30 +1056,23 @@ $e_{T-d}$ 是距离 $d$ 的 token 的 embedding，$s(x)$ 是模型在 $x$ 上的
 
 论文对此提供的解释是：如果先过局部层并且使用 RoPE，隐藏状态已经被注入了强烈的、与训练长度绑定的 RoPE 位置信号。当这些状态随后进入全局 NoPE 层时，NoPE 层会被迫处理这些位置信号，导致 NoPE 层发展出脆弱的隐式位置编码，外推时崩溃。而先过全局 NoPE 此时输入是纯粹的 token embedding，不含任何位置信息。NoPE 层可以在一个干净的环境中学习纯内容相关的语义整合，之后的局部层 使用 RoPE 再在此基础上叠加局部位置关系。
 
-此外，论文还对全局 NoPE 层做了一个推理时的注意力缩放：随着上下文变长，对全局层的 attention logits 乘以随位置增长的缩放因子。在 softmax 之前，对位置 $n$ 处的原始 attention logits 进行操作：
+此外，SWAN-GPT 在推理时对注意力 logits 进行动态缩放，重点针对全局 NoPE 层。作者通过实验估计不同序列位置所需的缩放因子，发现以下对数函数能够很好地拟合这些估计值：
 
 $$
-\text{scaled\_logits}_n = \text{raw\_logits}_n\frac{1}{\log_a(a + n)} 
+g(n)=\log_a(a + n)
 $$
 
-其中 $a$ 是一个通过离线拟合得到的单一标量超参数（论文中 $a^* \approx 7.5$）。
+其中 $n$ 表示序列位置， $a$ 是一个通过离线拟合得到的单一标量超参数（论文中 $a^* \approx 362$），控制曲线的增长速度。拟合过程如下：
 
-论文注意到全局 NoPE 层没有窗口限制，随着推理序列变长，参与 softmax 竞争的 token 数量线性增加。导致注意力 logits 的有效动态范围被压缩， softmax 输出平坦化，模型丧失了对关键 token 的选择性关注能力。
+- 从模型的训练分布中抽取 200 篇文档，每篇至少包含 32K token，以在延长上下文时尽量保持语义分布一致；用于这一分析的模型训练长度为 1K token。
+- 将每个 32K-token 上下文划分为 128-token 窗口，对每个窗口估计一个缩放因子，以最小化全部 200 篇文档上该窗口的困惑度。
+- 用 $\log_a(a+n)$ 拟合不同位置的估计值，并与 YaRN 的缩放函数比较。实验发现，对数函数更符合这些 NoPE 层的实验结果。
 
-其实这就等价于对 softmax 做位置相关的温度调节：
+论文强调，该函数随位置增长，且在 $n\ge0$ 时始终不低于 1。
 
-$$
-\text{softmax}\left(\frac{s}{\tau_n}\right), \quad \tau_n = \log_a(a+n) .
-$$
+从注意力机制本身看，全局 NoPE 层可见的历史 token 数量会随序列位置增加，参与 softmax 归一化的候选也随之增多。在 logits 的区分度没有相应增强时，关键 token 的注意力权重可能被更多候选稀释。
 
-这是一个离线的后处理拟合过程。
-
-- 数据收集：取 200 篇训练文档，切成 128-token 窗口，对每个窗口网格搜索使困惑度 Perplexity 最低的最优缩放因子 $s^*$；
-- 使用一系列初等函数拟合 $(n,s^*(n))$ 的数据，确定使用 $\log$ 函数；
-- 聚合去噪：对同一位置 $n$ 跨文档取中位数，得到 $\bar{s}^*(n)$；
-- 非线性最小二乘拟合：求解 $a^* = \arg\min_a \sum_n [\bar{s}^*(n) - \log_a(a+n)]^2$。
-
-论文认为这个拟合的函数和信息论相对应，全局注意力中，参与 softmax 竞争的 token 数量随序列长度 $N$ 线性增加。根据 Shannon 信息论，区分 $N$ 个均匀符号所需的信息量恰好是 $\log N$ 。
+有意思的是，这个拟合的函数可能和信息论某种程度上对应。全局注意力中，参与 softmax 竞争的 token 数量随序列长度 $N$ 线性增加。而根据 Shannon 信息论，区分 $N$ 个均匀符号所需的信息量下界恰好是 $\log N$ 。
 
 ## 6. 通用能力与训练效率的初步实验
 
@@ -1108,9 +1100,9 @@ $$
 
 其中把第一个实验 RoPE 设置成为 baseline，同时使用了滑动窗口，局部窗口大小为 512，全局窗口大小为 2048，使用 1:3 的比例"SSSL"，即先经过 3 个局部窗口，再经过 1 个全局窗口。而考虑到 NoPE 更多地是对长上下文有帮助，所以没有使用滑动窗口（我们也进行了使用 NoPE 和滑动窗口的实验，表现确实不如 NoPE 配上不使用滑动窗口）。
 
-最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也使用一系列初等函数对在我们的预训练文本上得到的注意力 logit 进行拟合，结果是乘 0.1，即 $ s\times 0.1$ ，并没有观察到论文中使用的 $\log$ 缩放因子.
+最后一个实验中根据 SWAN-GPT 拟合函数的方法，我们也采集了一批预训练文本的数据，但是并没有观察到论文中使用的 $\log$ 缩放因子，所以我们尝试使用初等函数拟合，结果是一个常函数，最终等价于温度为 0.1, 即 $ \frac{s}{0.1}$ ，以此作为一个简单的复现尝试。
 
-分析结果可以看到，除了 NoPE 明显让模型能力下降，其他的模型和 RoPE 相比都没有很大差别。需要注意的是，这只是在小模型上表现出来的能力，指标也都具有偶然性；另外，之前的论文介绍更多的是聚焦模型上下文长度泛化的能力，而这里的 `CORE` 是对通用能力的考验，所以此次实验结果仅作为一个简单的参考。
+分析结果可以看到，除了 NoPE 和 p-RoPE 明显让模型能力下降，其他的模型和 RoPE 相比都没有很大差别。需要注意的是，这只是在小模型上表现出来的能力，指标也都具有偶然性；另外，之前的论文介绍更多的是聚焦模型上下文长度泛化的能力，而这里的 `CORE` 是对通用能力的考验，所以此次实验结果仅作为一个简单的参考。
 
 顺带一提，在运行这个实验的过程中，我们使用了 [SwanLab](https://swanlab.cn/) 来记录实验数据，这是一个对标 WandB 的国产工具，具有指标可视化记录、硬件监控、多人协作等功能。
 
