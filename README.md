@@ -7,7 +7,7 @@
 - **RoPE 好在哪**：用绝对位置的旋转，得到只依赖相对距离的内积（"绝对进、相对出"）。
 - **RoPE 坏在哪**：注意力分数本质是一堆不同频率余弦波的叠加。上下文变长时，稳定的低频项越来越少、振荡的高频项越来越多。
 - **NoPE 凭什么可行**：decoder-only 的 causal mask 已经打破了置换对称性。构造性证明给出一个 head 就能数出绝对位置，后续层还能凑出加性的相对位置项。实测它的注意力模式最像 T5 relative bias。
-- **怎么混合**：p-RoPE 在一个 head 内留出一部分不旋转的语义通道（Gemma 4，$p=0.25$）；iRoPE 在层间让局部 RoPE 与全局 NoPE 交错（Llama 4）。iRoPE 要生效还得"给全局层留活干"：缩小局部窗口、NoPE 层去掉 QK-Norm、改用 LSSS 排列。
+- **怎么混合**：p-RoPE 在一个 head 内留出一部分不旋转的语义通道（Gemma 4， $p=0.25$ ）；iRoPE 在层间让局部 RoPE 与全局 NoPE 交错（Llama 4）。iRoPE 要生效还得"给全局层留活干"：缩小局部窗口、NoPE 层去掉 QK-Norm、改用 LSSS 排列。
 
 ## 目录
 
@@ -79,10 +79,10 @@ RoPE 的做法很优雅：根据 token 所处的位置，对 query 和 key 进�
 
 ### 1.1 从二维旋转开始
 
-先把 query 或 key 的两个相邻维度看成一个二维向量。对于位置 $m$，RoPE 用旋转矩阵将它旋转 $m\theta$：
+先把 query 或 key 的两个相邻维度看成一个二维向量。对于位置 $m$ ，RoPE 用旋转矩阵将它旋转 $m\theta$ ：
 
 $$
-\bm{R}(m\theta)=
+\boldsymbol{R}(m\theta)=
 \begin{bmatrix}
 \cos(m\theta) & -\sin(m\theta)\\
 \sin(m\theta) & \cos(m\theta)
@@ -92,11 +92,11 @@ $$
 因此，位于位置 $m$ 的 query 和位置 $n$ 的 key 分别变为
 
 $$
-\tilde{\bm{q}}_m=\bm{R}(m\theta)\bm{q}_m,\qquad
-\tilde{\bm{k}}_n=\bm{R}(n\theta)\bm{k}_n.
+\tilde{\boldsymbol{q}}_m=\boldsymbol{R}(m\theta)\boldsymbol{q}_m,\qquad
+\tilde{\boldsymbol{k}}_n=\boldsymbol{R}(n\theta)\boldsymbol{k}_n.
 $$
 
-这里的 $\bm{q}_m,\bm{k}_n$ 是内容向量，旋转角度则携带了它们各自的绝对位置信息。
+这里的 $\boldsymbol{q}_m,\boldsymbol{k}_n$ 是内容向量，旋转角度则携带了它们各自的绝对位置信息。
 
 ### 1.2 为什么最终表示的是相对位置
 
@@ -104,36 +104,36 @@ $$
 
 $$
 \begin{aligned}
-\tilde{\bm{q}}_m^{\mathsf T}\tilde{\bm{k}}_n
-&=(\bm{R}(m\theta)\bm{q}_m)^{\mathsf T}(\bm{R}(n\theta)\bm{k}_n)\\
-&=\bm{q}_m^{\mathsf T}\bm{R}(m\theta)^{\mathsf T}\bm{R}(n\theta)\bm{k}_n\\
-&=\bm{q}_m^{\mathsf T}\bm{R}((n-m)\theta)\bm{k}_n.
+\tilde{\boldsymbol{q}}_m^{\mathsf T}\tilde{\boldsymbol{k}}_n
+&=(\boldsymbol{R}(m\theta)\boldsymbol{q}_m)^{\mathsf T}(\boldsymbol{R}(n\theta)\boldsymbol{k}_n)\\
+&=\boldsymbol{q}_m^{\mathsf T}\boldsymbol{R}(m\theta)^{\mathsf T}\boldsymbol{R}(n\theta)\boldsymbol{k}_n\\
+&=\boldsymbol{q}_m^{\mathsf T}\boldsymbol{R}((n-m)\theta)\boldsymbol{k}_n.
 \end{aligned}
 $$
 
 其中用到了旋转矩阵的两个性质：
 
 $$
-\bm{R}(\alpha)^{\mathsf T}=\bm{R}(-\alpha),\qquad
-\bm{R}(\alpha)\bm{R}(\beta)=\bm{R}(\alpha+\beta).
+\boldsymbol{R}(\alpha)^{\mathsf T}=\boldsymbol{R}(-\alpha),\qquad
+\boldsymbol{R}(\alpha)\boldsymbol{R}(\beta)=\boldsymbol{R}(\alpha+\beta).
 $$
 
-可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$，而只依赖两者的相对距离 $n-m$。这正是 RoPE 巧妙之处：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
+可以看到，最终的注意力分数不再分别依赖 $m$ 和 $n$ ，而只依赖两者的相对距离 $n-m$ 。这正是 RoPE 巧妙之处：**用绝对位置对应的旋转，得到只依赖相对位置的内积。**
 
 继续把上面的式子展开。
 
-记 $\bm{k}_n^\perp$ 为 $\bm{k}_n$ 逆时针旋转 $90^\circ$ 后的向量（即 $(-k_2,k_1)$），利用 
+记 $\boldsymbol{k}_n^\perp$ 为 $\boldsymbol{k}_n$ 逆时针旋转 $90^\circ$ 后的向量（即 $(-k_2,k_1)$ ），利用 
 
 $$
 \begin{aligned}
-\bm{R}(\Delta)\bm{k}
+\boldsymbol{R}(\Delta)\boldsymbol{k}
 &=\begin{bmatrix}
 \cos(\Delta) & -\sin(\Delta)\\
 \sin(\Delta) & \cos(\Delta)
 \end{bmatrix}\begin{bmatrix} k_1\\k_2\end{bmatrix}\\
 &=\begin{bmatrix}k_1\cos\Delta-k_2\sin\Delta\\k_1\sin\Delta+k_2\cos\Delta\end{bmatrix}\\
 &=\begin{bmatrix} k_1 \\ k_2 \end{bmatrix}\cos\Delta + \begin{bmatrix} -k_2\\k_1\end{bmatrix}\sin\Delta\\
-&= \bm{k}\cos\Delta+\bm{k}^\perp\sin\Delta
+&= \boldsymbol{k}\cos\Delta+\boldsymbol{k}^\perp\sin\Delta
 \end{aligned},
 $$
 
@@ -141,23 +141,23 @@ $$
 
 $$
 \begin{aligned}
-\langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle
-&=\bm{q}_m^{\mathsf T}\bm{R}((n-m)\theta)\bm{k}_n\\
-&=\bm{q}_m^{\mathsf T}\left (\bm{k}_n\cos((n-m)\theta)+\bm{k}_n^\perp\sin((n-m)\theta)\right )\\
-&=\underbrace{\langle \bm{q}_m,\bm{k}_n\rangle}_{\text{内容相似度}}\cos\bigl((n-m)\theta\bigr)
-+\underbrace{\langle \bm{q}_m,\bm{k}_n^\perp\rangle}_{\text{正交分量}}\sin\bigl((n-m)\theta\bigr).
+\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle
+&=\boldsymbol{q}_m^{\mathsf T}\boldsymbol{R}((n-m)\theta)\boldsymbol{k}_n\\
+&=\boldsymbol{q}_m^{\mathsf T}\left (\boldsymbol{k}_n\cos((n-m)\theta)+\boldsymbol{k}_n^\perp\sin((n-m)\theta)\right )\\
+&=\underbrace{\langle \boldsymbol{q}_m,\boldsymbol{k}_n\rangle}_{\text{内容相似度}}\cos\bigl((n-m)\theta\bigr)
++\underbrace{\langle \boldsymbol{q}_m,\boldsymbol{k}_n^\perp\rangle}_{\text{正交分量}}\sin\bigl((n-m)\theta\bigr).
 \end{aligned}
 $$
 
 这样就一目了然：
 
 - 当 $m=n$ 时， $\cos 0=1, \sin 0=0$ ，分数退化为纯内容相似度，位置不干扰内容匹配；
-- 距离拉开时， $\cos$ 项给内容相似度乘上一个随距离起伏的权重，$\sin$ 项掺入一个与内容正交的分量；
+- 距离拉开时， $\cos$ 项给内容相似度乘上一个随距离起伏的权重， $\sin$ 项掺入一个与内容正交的分量；
 - 所以 RoPE 没有把位置加到分数上，而是**用相对距离去调制内容匹配的结果**——位置是乘性门控，不是加性偏置。
 
 ### 1.3 扩展到高维向量
 
-实际模型中的 head dimension 通常为偶数 $d$。RoPE 将向量按两维一组，给第 $i$ 组使用不同频率
+实际模型中的 head dimension 通常为偶数 $d$ 。RoPE 将向量按两维一组，给第 $i$ 组使用不同频率
 
 $$
 \theta_i=10000^{-2(i-1)/d},\qquad i=1,\ldots,\frac d2.
@@ -166,8 +166,8 @@ $$
 整体旋转矩阵是一个分块对角矩阵：
 
 $$
-\bm{R}_m=\mathrm{diag}\bigl(
-\bm{R}(m\theta_1),\bm{R}(m\theta_2),\ldots,\bm{R}(m\theta_{\frac{d}{2}})
+\boldsymbol{R}_m=\mathrm{diag}\bigl(
+\boldsymbol{R}(m\theta_1),\boldsymbol{R}(m\theta_2),\ldots,\boldsymbol{R}(m\theta_{\frac{d}{2}})
 \bigr).
 $$
 
@@ -175,8 +175,8 @@ $$
 
 $$
 s(m,n)
-=\frac{(\bm{R}_m\bm{q}_m)^{\mathsf T}(\bm{R}_n\bm{k}_n)}{\sqrt d}
-=\frac{\bm{q}_m^{\mathsf T}\bm{R}_{n-m}\bm{k}_n}{\sqrt d}.
+=\frac{(\boldsymbol{R}_m\boldsymbol{q}_m)^{\mathsf T}(\boldsymbol{R}_n\boldsymbol{k}_n)}{\sqrt d}
+=\frac{\boldsymbol{q}_m^{\mathsf T}\boldsymbol{R}_{n-m}\boldsymbol{k}_n}{\sqrt d}.
 $$
 
 也可以写成展开的形式：
@@ -186,25 +186,25 @@ s(m,n)
 =\frac{1}{\sqrt{d}}
 \sum_{i=1}^{d/2}
 \left(q_m^{(i)}\right)^\top
-\bm{R}\!\left((n-m)\theta_i\right)
+\boldsymbol{R}\!\left((n-m)\theta_i\right)
 k_n^{(i)}.
 $$
 
-随后加上因果掩码（不可见位置置 $-\infty$），再经 softmax 得到注意力权重 $\alpha(m,n)=\mathrm{softmax}_n\,s(m,n)$。
+随后加上因果掩码（不可见位置置 $-\infty$ ），再经 softmax 得到注意力权重 $\alpha(m,n)=\mathrm{softmax}_n\,s(m,n)$ 。
 
 ### 1.4 直观理解
 
 **（a）复数视角：位置就是相位**
 
-把每两个维度看成复平面上的一根指针 $z=x_1+\mathrm{i}x_2$。乘以 $e^{\mathrm{i}m\theta}$ 就是把指针逆时针转动 $m\theta$：
+把每两个维度看成复平面上的一根指针 $z=x_1+\mathrm{i}x_2$ 。乘以 $e^{\mathrm{i}m\theta}$ 就是把指针逆时针转动 $m\theta$ ：
 
 $$
 z^{(m)}=z\ e^{\mathrm{i}m\theta}.
 $$
 
-于是**指针的绝对角度（相位）唯一地携带了绝对位置 $m$**。到这里为止，RoPE 注入的还是绝对信息。
+于是**指针的绝对角度（相位）唯一地携带了绝对位置 $m$** 。到这里为止，RoPE 注入的还是绝对信息。
 
-真正的关键在内积的复数写法。实内积等于 $\langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle=\mathrm{Re}\bigl(z^{(m)}_q\,\overline{z^{(n)}_k}\bigr)$, 注意第二个因子要取共轭，共轭把相位取反：$e^{\mathrm{i}n\theta}\to e^{-\mathrm{i}n\theta}$。因此
+真正的关键在内积的复数写法。实内积等于 $\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle=\mathrm{Re}\bigl(z^{(m)}_q\,\overline{z^{(n)}_k}\bigr)$ , 注意第二个因子要取共轭，共轭把相位取反： $e^{\mathrm{i}n\theta}\to e^{-\mathrm{i}n\theta}$ 。因此
 
 $$
 z^{(m)}_q\,\overline{z^{(n)}_k}
@@ -212,15 +212,15 @@ z^{(m)}_q\,\overline{z^{(n)}_k}
 =\bigl(z_q\overline{z_k}\bigr)\,e^{\mathrm{i}(m-n)\theta}.
 $$
 
-两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$，实现了“绝对进、相对出”。
+两个绝对相位 $m\theta$ 与 $n\theta$ 在相乘时只剩下相位差 $(m-n)\theta$ ，实现了“绝对进、相对出”。
 
 **（b）几何视角：只转弯，不改长度**
 
-旋转是刚体运动，模长一致：$\lVert\bm{R}_m\bm{x}\rVert_2=\lVert\bm{x}\rVert_2$。 RoPE 不会像加性位置编码那样扰动 query/key 的模长与数值分布，它只改变向量的朝向，而朝向正是内积所度量的东西。
+旋转是刚体运动，模长一致： $\lVert\boldsymbol{R}_m\boldsymbol{x}\rVert_2=\lVert\boldsymbol{x}\rVert_2$ 。 RoPE 不会像加性位置编码那样扰动 query/key 的模长与数值分布，它只改变向量的朝向，而朝向正是内积所度量的东西。
 
 **（c）多频率**
 
-$d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2(i-1)/d}$）：
+$d/2$ 组维度就是 $d/2$ 根转速不同的指针（ $\theta_i=10000^{-2(i-1)/d}$ ）：
 
 - **高频指针**转得快，相邻位置也有明显相位差，分辨率高、能精细区分近邻；但转过一整圈后相位开始复用，长距离上会出现周期性混叠。
 - **低频指针**转得慢，在很长距离上都近似单调变化，能覆盖长程依赖，但近处区分度低。
@@ -229,25 +229,25 @@ $d/2$ 组维度就是 $d/2$ 根转速不同的指针（$\theta_i=10000^{-2(i-1)/
 
 **（d）为什么 value 不需要旋转**
 
-位置信息的目标只是决定“关注谁”，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}\bm{v}_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
+位置信息的目标只是决定“关注谁”，而这个决定已经完整编码在注意力权重 $\alpha_{mn}$ 里；输出 $\sum_n\alpha_{mn}\boldsymbol{v}_n$ 通过权重就已经带上了相对位置。若再旋转 value，一是位置信息被重复注入，二是会改变输出表征空间的朝向，与残差、FFN 及后续层所期望的分布不一致。
 
 ## 2. 重新审视 RoPE：怎么失灵了
 
-当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，外推改变了相对距离及多频率相位组合的分布，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中可能需要依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
+当我们重新审视 RoPE，会发现其位置信息依赖于频率 $\theta_i$ ，训练时模型只见过特定范围内的位置索引（如 4k）。而当推理长度超过训练长度时，外推改变了相对距离及多频率相位组合的分布，导致注意力分数出现剧烈震荡或完全崩溃。这就是长度泛化的问题，在更长的上下文中可能需要依赖额外的插值算法（如 YaRN）来强行压缩频率空间，这本质上是一种有损的修补，且需要重新微调或校准。
 
 此外，论文 [RoPE Distinguishes Neither Positions Nor Tokens in Long Contexts, Provably](https://arxiv.org/abs/2605.15514) 提出了一个更强的观点：**当上下文不断增长时，RoPE 可能同时失去可靠区分位置和稳定区分 token 的能力；只调整 RoPE base，无法同时解决这两个问题。**
 
 ### 2.1 从旋转矩阵到振荡信号
 
 回顾刚刚给出的二维 RoPE 展开：
-$\langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle=\langle \bm{q}_m,\bm{k}_n\rangle\cos\bigl((n-m)\theta\bigr)
-+\langle \bm{q}_m,\bm{k}_n^\perp\rangle\sin\bigl((n-m)\theta\bigr)$.
+$\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle=\langle \boldsymbol{q}_m,\boldsymbol{k}_n\rangle\cos\bigl((n-m)\theta\bigr)
++\langle \boldsymbol{q}_m,\boldsymbol{k}_n^\perp\rangle\sin\bigl((n-m)\theta\bigr)$ .
 
-把 $\langle \bm{q}_m,\bm{k}_n\rangle$ 和 $\langle \bm{q}_m,\bm{k}_n^\perp\rangle$ 分别记作 $A$ 和 $D$，则有
+把 $\langle \boldsymbol{q}_m,\boldsymbol{k}_n\rangle$ 和 $\langle \boldsymbol{q}_m,\boldsymbol{k}_n^\perp\rangle$ 分别记作 $A$ 和 $D$ ，则有
 
 $$
 \begin{aligned}
-\langle \tilde{\bm{q}}_m,\tilde{\bm{k}}_n\rangle
+\langle \tilde{\boldsymbol{q}}_m,\tilde{\boldsymbol{k}}_n\rangle
 &=A\cos\bigl((n-m)\theta\bigr)+D\sin\bigl((n-m)\theta\bigr)\\
 &=C\cos\bigl((n-m)\theta-\phi\bigr)\\
 \end{aligned},
@@ -257,12 +257,12 @@ C&=\sqrt{A^2+D^2}
 \end{aligned}
 $$
 
-其中 $A$, $D$, $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
+其中 $A$ , $D$ , $\phi$ 都是只和 query 和 key 的内容有关，而和位置无关的参数。
 
-我们把二维的公式拓展到 $d=2h$ 维，把 query 与 key 的相对距离记为 $r$。每两个维度合并后，RoPE 作用下的未归一化注意力分数就可以写成
+我们把二维的公式拓展到 $d=2h$ 维，把 query 与 key 的相对距离记为 $r$ 。每两个维度合并后，RoPE 作用下的未归一化注意力分数就可以写成
 
 $$
-s_{\bm{q},\bm{k}}(r)
+s_{\boldsymbol{q},\boldsymbol{k}}(r)
 =\sum_{n=1}^{h}C_n\cos(r\theta_n-\phi_n).
 $$
 
@@ -270,10 +270,10 @@ $\theta_n=B^{-(n-1)/h}$ 由 RoPE base $B$ 决定。也就是说，RoPE attention
 
 接下来我们尝试把这些余弦波按照在上下文长度 $L$ 内转得快还是慢分成两堆。
 
-对第 $n$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_n$ 变成 $r\theta_n - \phi_n$. 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_n$ 弧度。
+对第 $n$ 个分量，随相对距离 $r$ 增大，相位从 $\phi_n$ 变成 $r\theta_n - \phi_n$ . 可以想成单位圆上一个点：每拉开 1 个 token，就多转 $\theta_n$ 弧度。
 
-- 如果存在 $r < L$ 使得 $r\theta_n \gtrsim 2\pi$，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
-- 而如果所有 $r$ 都有 $r\theta_n \ll \pi$，则这个分量**只扫过一小段圆弧**，$\cos$ 值几乎单调缓降。
+- 如果存在 $r < L$ 使得 $r\theta_n \gtrsim 2\pi$ ，则这个分量**至少转完一圈**, $\cos$ 会上下摆动很多次。
+- 而如果所有 $r$ 都有 $r\theta_n \ll \pi$ ，则这个分量**只扫过一小段圆弧**， $\cos$ 值几乎单调缓降。
 
 在上下文长度 $L$ 内刚好转满一圈的临界条件是
 
@@ -286,15 +286,15 @@ n \approx h \log_B\!\frac{L}{2\pi}
 = \Theta(h\log_B L).
 $$
 
-记$\lambda(L)=\Theta(h\log_B L)$：
+记 $\lambda(L)=\Theta(h\log_B L)$ ：
 
-- $ n \ll \lambda(L)$：转得比一圈还多 → 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
-- $n \gg \lambda(L)$：转一个非常小的角度 → 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
+- $ n \ll \lambda(L)$ ：转得比一圈还多 → 高频项旋转快，可以区分相邻位置，但也会使分数随距离剧烈振荡。
+- $n \gg \lambda(L)$ ：转一个非常小的角度 → 低频项旋转慢，形成偏好近距离 token 的衰减趋势，同时让 token 相关性的排序更加稳定。
 
 论文的关键分析是：当距离 $r$ 从一个足够长的区间中采样时，可以借助中心极限定理，把这个余弦和近似看成正态随机变量
 
 $$
-\tilde{s}_{\bm{q},\bm{k}}\sim
+\tilde{s}_{\boldsymbol{q},\boldsymbol{k}}\sim
 \mathcal N\left(\mu_L,\sigma_L^2\right),
 $$
 
@@ -302,15 +302,15 @@ $$
 
 推导过程大致概括如下，严谨的证明推荐去看原论文。
 
-当 $\bm{q},\bm{k}$ 固定后，$C_n,\phi_n$ 就定了，$s(r)$ 只是 $\bm{q}$ 和 $\bm{k}$ 的相对距离 $r$ 的函数：
+当 $\boldsymbol{q},\boldsymbol{k}$ 固定后， $C_n,\phi_n$ 就定了， $s(r)$ 只是 $\boldsymbol{q}$ 和 $\boldsymbol{k}$ 的相对距离 $r$ 的函数：
 
 $$
 s(r)=\sum_{n=1}^{h} \underbrace{C_n\cos(r\theta_n-\phi_n)}_{\Psi_n(r)}.
 $$
 
-我们尝试描述距离 $r$ 的分布是**在上下文长度 $[0,L)$ 上均匀分布**的。那么每个 $\Psi_n$ 就是一个随机变量，从而 $s$ 也是随机变量。所以问题变成：$s$ 的分布长什么样？
+我们尝试描述距离 $r$ 的分布是**在上下文长度 $[0,L)$ 上均匀分布**的。那么每个 $\Psi_n$ 就是一个随机变量，从而 $s$ 也是随机变量。所以问题变成： $s$ 的分布长什么样？
 
-我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$，$\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时，$\beta(r) = r\theta_n - \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\beta(r)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\beta$ 近似**均匀分布在 $[0,2\pi)$**，概率密度 $p(\beta)\approx\frac{1}{2\pi},\quad 0\le \beta < 2\pi$
+我们先看**高频项**，高频项给我一种“洗匀”的感觉。当 $n \ll \lambda(L)$ ， $\theta_n$ 较大，当 $r$ 跑遍 $[0,L)$ 时， $\beta(r) = r\theta_n - \phi_n$ 会绕单位圆转很多很多圈。于是 $\cos\beta(r)$ 把 $[-1,1]$ 上每个取值都扫过很多次。也就是说，从随机抽 $r$ 的角度看，相位 $\beta$ 近似**均匀分布在 $[0,2\pi)$** ，概率密度 $p(\beta)\approx\frac{1}{2\pi},\quad 0\le \beta < 2\pi$
  
 可以得到：
 
@@ -334,9 +334,9 @@ $$
 
 **转得越快，越像噪声：对均值几乎没有贡献，只贡献波动。**
 
-论文里用 Dirichlet Kernel 证明：$r$ 在长区间上均匀时，$\mathbb{E}[\Psi_n]=O(\frac{2C_n}{L\theta_n})\to 0$，$\mathbb{E}[\Psi_n^2]\to C_n^2/2$。
+论文里用 Dirichlet Kernel 证明： $r$ 在长区间上均匀时， $\mathbb{E}[\Psi_n]=O(\frac{2C_n}{L\theta_n})\to 0$ ， $\mathbb{E}[\Psi_n^2]\to C_n^2/2$ 。
 
-再看**低频项**，低频项给我一种“冰冻”的感觉。当 $n \gg \lambda(L)$，$\theta_n$ 很小，$r\in[0,L)$ 时 $r\theta_n$ 扫过的角度非常小(O(1))：
+再看**低频项**，低频项给我一种“冰冻”的感觉。当 $n \gg \lambda(L)$ ， $\theta_n$ 很小， $r\in[0,L)$ 时 $r\theta_n$ 扫过的角度非常小(O(1))：
 
 $$
  r\theta_n-\phi_n \approx -\phi_n,\qquad \cos(r\theta_n-\phi_n)\approx \cos(-\phi_n)=\cos\phi_n. 
@@ -354,10 +354,10 @@ $$
 此时我们注意到：
 
 **(a) 各频率项近似独立。**
-$\theta_1=B^{0/h}=1$, $\theta_n=B^{-(n-1)/h}=\theta^{n-1}$，序列 $1,\theta,\theta^2,\ldots$ 在有理数集 $\mathbb{Q}$ 上几乎线性无关（Weyl 等分布准则），于是 $r\theta_n \bmod 2\pi$ 对不同 $n$ 近似独立均匀。论文估计协方差 $\mathrm{Cov}[\Psi_n\Psi_p]=O(\frac{C_nC_p}{L\theta_n})$，高频时极小可忽略。
+$\theta_1=B^{0/h}=1$ , $\theta_n=B^{-(n-1)/h}=\theta^{n-1}$ ，序列 $1,\theta,\theta^2,\ldots$ 在有理数集 $\mathbb{Q}$ 上几乎线性无关（Weyl 等分布准则），于是 $r\theta_n \bmod 2\pi$ 对不同 $n$ 近似独立均匀。论文估计协方差 $\mathrm{Cov}[\Psi_n\Psi_p]=O(\frac{C_nC_p}{L\theta_n})$ ，高频时极小可忽略。
 
 **(b) 中心极限定理。**
-高频项 $\sum_{n<\lambda(L)} C_n\cos(r\theta_n-\phi_n)$ 是许多独立、均值为 0、无单项主导的随机项之和，渐近正态。Berry–Esseen 给出误差 $O(1/\sqrt{\lambda(L)})$。
+高频项 $\sum_{n<\lambda(L)} C_n\cos(r\theta_n-\phi_n)$ 是许多独立、均值为 0、无单项主导的随机项之和，渐近正态。Berry–Esseen 给出误差 $O(1/\sqrt{\lambda(L)})$ 。
 
 再加上低频项近似常数，整体就是：
 
@@ -380,12 +380,12 @@ $$
 
 | 现象 | 数学表现 | 直观含义 |
 |---|---|---|
-| 位置反转 | $r_1<r_2$，但 $s(r_1)<s(r_2)$ | 同一个 token 放得更远，注意力分数反而更高，局部性偏置失效 |
-| 位置混叠 | $r_1\ne r_2$，但 $s(r_1)=s(r_2)$ | 不同位置产生相同分数，模型无法仅凭该分数区分位置 |
-| token 反转 | $s_1(0)>s_2(0)$，但某个 $r$ 上 $s_1(r)<s_2(r)$ | 两个 token 原本的相关性排序被距离反转 |
-| token 混叠 | $\bm{k}_1\ne\bm{k}_2$，但 $s_1(r)=s_2(r)$ | 不同 token 在某个位置得到相同分数 |
+| 位置反转 | $r_1<r_2$ ，但 $s(r_1)<s(r_2)$ | 同一个 token 放得更远，注意力分数反而更高，局部性偏置失效 |
+| 位置混叠 | $r_1\ne r_2$ ，但 $s(r_1)=s(r_2)$ | 不同位置产生相同分数，模型无法仅凭该分数区分位置 |
+| token 反转 | $s_1(0)>s_2(0)$ ，但某个 $r$ 上 $s_1(r)<s_2(r)$ | 两个 token 原本的相关性排序被距离反转 |
+| token 混叠 | $\boldsymbol{k}_1\ne\boldsymbol{k}_2$ ，但 $s_1(r)=s_2(r)$ | 不同 token 在某个位置得到相同分数 |
 
-当上下文 $L$ 进一步变长时，$\lambda(L)=\Theta(h\log_B L)$ 变大，更多项从低频常数被划进高频噪声：$\mu$ 稳定项变少，$\sigma^2$ 变大，论文证明了两种“反转”的概率下界最终都可趋近 $0.5$，即排序接近抛硬币猜测；两种“混叠”还会受到 BF16 等有限数值精度的放大。
+当上下文 $L$ 进一步变长时， $\lambda(L)=\Theta(h\log_B L)$ 变大，更多项从低频常数被划进高频噪声： $\mu$ 稳定项变少， $\sigma^2$ 变大，论文证明了两种“反转”的概率下界最终都可趋近 $0.5$ ，即排序接近抛硬币猜测；两种“混叠”还会受到 BF16 等有限数值精度的放大。
 
 ### 2.3 RoPE base 不是免费的午餐
 
@@ -412,7 +412,7 @@ $$
 
 论文的 Theorem 1 ：
 
-> 对输入 $\bm{x}=[\langle \mathrm{bos}\rangle, x_2,\ldots,x_{T+1}]^T$ ，NoPE 的第一层存在一组参数，使得隐状态 $\bm{H}^{(1)}$ 中恢复出绝对位置 $[1,\ldots,T+1]$。也就是说，我们可以找出一组 $\bm{W}_Q, \bm{W}_K, \bm{W}_V, \bm{W}_O, \bm{W}_1, \bm{W}_2$ 使得可以把第一层恢复的绝对位置写入到下一层的隐状态。
+> 对输入 $\boldsymbol{x}=[\langle \mathrm{bos}\rangle, x_2,\ldots,x_{T+1}]^T$ ，NoPE 的第一层存在一组参数，使得隐状态 $\boldsymbol{H}^{(1)}$ 中恢复出绝对位置 $[1,\ldots,T+1]$ 。也就是说，我们可以找出一组 $\boldsymbol{W}_Q, \boldsymbol{W}_K, \boldsymbol{W}_V, \boldsymbol{W}_O, \boldsymbol{W}_1, \boldsymbol{W}_2$ 使得可以把第一层恢复的绝对位置写入到下一层的隐状态。
 
 证明是构造性的，仅需使用隐藏状态的前三个维度。其余的注意力头只要不覆盖前三个维度，其具体形式可以是任意的。这在实践中并不会带来任何困难，因为实际使用的 Transformer 模型通常具有非常大的模型维度。
 
@@ -420,15 +420,15 @@ $$
 
 把隐状态的前三个维度先预留出来：
 
-- 第 1 维：所有 token 都置为 $1$（常数）；
-- 第 2 维：仅当 token 是 $\langle \mathrm{bos}\rangle$ 时为 $1$，否则为 $0$; 这里不妨假设 $\langle \mathrm{bos}\rangle$ 的 token id 是 $1$；
-- 第 3 维：初始为 $0$，留给注意力往里写位置;
+- 第 1 维：所有 token 都置为 $1$ （常数）；
+- 第 2 维：仅当 token 是 $\langle \mathrm{bos}\rangle$ 时为 $1$ ，否则为 $0$ ; 这里不妨假设 $\langle \mathrm{bos}\rangle$ 的 token id 是 $1$ ；
+- 第 3 维：初始为 $0$ ，留给注意力往里写位置;
 - 其它维：其余维度不受影响。
 
 也就是词嵌入矩阵形如
 
 $$
-\bm{W}_E=
+\boldsymbol{W}_E=
 \begin{bmatrix}
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
@@ -438,30 +438,30 @@ e_{4,1} & e_{4,2} & e_{4,3} & \cdots & e_{4,V}\\
 \end{bmatrix}_{d\times V}.
 $$
 
-$d$ 代表隐状态维度，$V$ 代表词表大小。
+$d$ 代表隐状态维度， $V$ 代表词表大小。
 
 #### 第二步，让注意力均匀数数
 
 取一个注意力头，参数设计成这样，因为实践中基本都使用多头注意力，所以设计一个 head 就够了，其他 head 只要不覆盖这前三维就可以：
 
-- $\bm{W}_K$ 只读第 1 维 → 所有 key 完全相同；
-- $\bm{W}_V$ 只读第 2 维 → 只有 $\langle  \mathrm{bos}\rangle$ 的 value 是 $1$，其余都是 $0$；
-- $\bm{W}_Q$ 随意，$\bm{W}_O$ 把结果写回第 3 维。
+- $\boldsymbol{W}_K$ 只读第 1 维 → 所有 key 完全相同；
+- $\boldsymbol{W}_V$ 只读第 2 维 → 只有 $\langle  \mathrm{bos}\rangle$ 的 value 是 $1$ ，其余都是 $0$ ；
+- $\boldsymbol{W}_Q$ 随意， $\boldsymbol{W}_O$ 把结果写回第 3 维。
 
 $$
-\bm{W}_K=\begin{bmatrix}
+\boldsymbol{W}_K=\begin{bmatrix}
 1 & 0 & \cdots & 0\\
 1 & 0 & \cdots & 0\\
 \vdots & \vdots & \ddots & \vdots\\
 1 & 0 & \cdots & 0
 \end{bmatrix}_{h\times d}, 
-\bm{W}_V=\begin{bmatrix}
+\boldsymbol{W}_V=\begin{bmatrix}
 0 & 1 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
 \vdots & \vdots & \vdots & \ddots & \vdots\\
 0 & 0 & 0 & \cdots & 0
 \end{bmatrix}_{h\times d},
-\bm{W}_O=\begin{bmatrix}
+\boldsymbol{W}_O=\begin{bmatrix}
 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
 1 & 0 & 0 & \cdots & 0\\
@@ -473,10 +473,10 @@ $$
 
 $h$ 代表注意力一个头的维度。
 
-把输入序列写成 one-hot 矩阵 $\bm{X}=[\bm{x}_1, \bm{x}_2,\ldots,\bm{x}_{T+1}]\in\mathbb{R}^{V\times(T+1)}$ ，每一列是一个 token 的 one-hot 向量，第 $t$ 列 $\bm{x}_t$ 位于绝对位置 $t$，其中首列 $\bm{x}_1$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量。左乘 $\bm{W}_E$ 得到隐状态 $\bm{H}^{(0)}$ 。因为 $\bm{x}_t$ 是 one-hot，这一步本质上就是把 $\bm{W}_E$ 的列按 token 的词表 id 重新排列；把 $\text{id}(\bm{x}_t)$ 记作第 $t$ 个 token 对应的词表 id，则有 $\text{id}(\bm{x}_1)=\text{id}(\langle \mathrm{bos}\rangle)=1$。
+把输入序列写成 one-hot 矩阵 $\boldsymbol{X}=[\boldsymbol{x}_1, \boldsymbol{x}_2,\ldots,\boldsymbol{x}_{T+1}]\in\mathbb{R}^{V\times(T+1)}$ ，每一列是一个 token 的 one-hot 向量，第 $t$ 列 $\boldsymbol{x}_t$ 位于绝对位置 $t$ ，其中首列 $\boldsymbol{x}_1$ 就是 $\langle \mathrm{bos}\rangle$ 的 one-hot 向量。左乘 $\boldsymbol{W}_E$ 得到隐状态 $\boldsymbol{H}^{(0)}$ 。因为 $\boldsymbol{x}_t$ 是 one-hot，这一步本质上就是把 $\boldsymbol{W}_E$ 的列按 token 的词表 id 重新排列；把 $\text{id}(\boldsymbol{x}_t)$ 记作第 $t$ 个 token 对应的词表 id，则有 $\text{id}(\boldsymbol{x}_1)=\text{id}(\langle \mathrm{bos}\rangle)=1$ 。
 
 $$
-\bm{H}^{(0)}=\bm{W}_E\bm{X}
+\boldsymbol{H}^{(0)}=\boldsymbol{W}_E\boldsymbol{X}
 =\begin{bmatrix}
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
@@ -485,21 +485,21 @@ e_{4,1} & e_{4,2} & e_{4,3} & \cdots & e_{4,V}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 \begin{bmatrix}
-\bm{x}_1 & \bm{x}_2 & \cdots & \bm{x}_{T+1}
+\boldsymbol{x}_1 & \boldsymbol{x}_2 & \cdots & \boldsymbol{x}_{T+1}
 \end{bmatrix}
 =\begin{bmatrix}
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
+e_{4,1} & e_{4,\text{id}(\boldsymbol{x}_2)} & e_{4,\text{id}(\boldsymbol{x}_3)} & \cdots & e_{4,\text{id}(\boldsymbol{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}_{d\times (T+1)}.
 $$
 
-接下来计算 $\bm{K}$ 矩阵：
+接下来计算 $\boldsymbol{K}$ 矩阵：
 
 $$
-\bm{K}=\bm{W}_K\bm{H}^{(0)}=\begin{bmatrix}
+\boldsymbol{K}=\boldsymbol{W}_K\boldsymbol{H}^{(0)}=\begin{bmatrix}
 1 & 0 & \cdots & 0\\
 1 & 0 & \cdots & 0\\
 \vdots & \vdots & \ddots & \vdots\\
@@ -509,7 +509,7 @@ $$
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
+e_{4,1} & e_{4,\text{id}(\boldsymbol{x}_2)} & e_{4,\text{id}(\boldsymbol{x}_3)} & \cdots & e_{4,\text{id}(\boldsymbol{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 =\begin{bmatrix}
@@ -520,18 +520,18 @@ e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,
 \end{bmatrix}_{h\times (T+1)}.
 $$
 
-$\bm{W}_Q$ 可以任意取，所以不妨直接考察位于绝对位置 $t\in[1,T+1]$ 的 query：$\bm{q}_t=\bm{W}_Q\bm{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in\mathbb{R}^{h\times 1}$。在 causal mask 下，位置 $t$ 的 query 只能与 $i\le t$ 的 key 交互，也就是说它恰好能看见自己以及之前的全部 $t$ 个 token，其中就包含位于位置 $1$ 的 $\langle\mathrm{bos}\rangle$。把这 $t$ 个可见 key 按列拼成
+$\boldsymbol{W}_Q$ 可以任意取，所以不妨直接考察位于绝对位置 $t\in[1,T+1]$ 的 query： $\boldsymbol{q}_t=\boldsymbol{W}_Q\boldsymbol{h}_t^{(0)}=[q_1,\cdots,q_h]^T\in\mathbb{R}^{h\times 1}$ 。在 causal mask 下，位置 $t$ 的 query 只能与 $i\le t$ 的 key 交互，也就是说它恰好能看见自己以及之前的全部 $t$ 个 token，其中就包含位于位置 $1$ 的 $\langle\mathrm{bos}\rangle$ 。把这 $t$ 个可见 key 按列拼成
 
 $$
-\bm{K}_t=\begin{bmatrix}
-\bm{k}_1, \bm{k}_2, \cdots, \bm{k}_t
-\end{bmatrix}=\bm{1}_{h\times t}.
+\boldsymbol{K}_t=\begin{bmatrix}
+\boldsymbol{k}_1, \boldsymbol{k}_2, \cdots, \boldsymbol{k}_t
+\end{bmatrix}=\boldsymbol{1}_{h\times t}.
 $$
 
-忽略 $1/\sqrt{d}$，由于所有 key 完全相同，未归一化的注意力分数也都相同：
+忽略 $1/\sqrt{d}$ ，由于所有 key 完全相同，未归一化的注意力分数也都相同：
 
 $$
-\bm{s}_t=\bm{K}_t^{\mathsf T}\bm{q}_t=\bm{1}_{t\times h}\begin{bmatrix}
+\boldsymbol{s}_t=\boldsymbol{K}_t^{\mathsf T}\boldsymbol{q}_t=\boldsymbol{1}_{t\times h}\begin{bmatrix}
 q_1 \\ q_2 \\ \vdots \\ q_h
 \end{bmatrix}
 =\begin{bmatrix}
@@ -545,13 +545,13 @@ $$
 于是经过 softmax 给出均匀分布：
 
 $$
-\bm{\alpha}_t=\mathrm{softmax}(\bm{s}_t)=\Bigl[\frac1t,\frac1t,\ldots,\frac1t\Bigr]^T.
+\boldsymbol{\alpha}_t=\mathrm{softmax}(\boldsymbol{s}_t)=\Bigl[\frac1t,\frac1t,\ldots,\frac1t\Bigr]^T.
 $$
 
-计算 $\bm{V}$ 矩阵：
+计算 $\boldsymbol{V}$ 矩阵：
 
 $$
-\bm{V}=\bm{W}_V\bm{H}^{(0)}=\begin{bmatrix}
+\boldsymbol{V}=\boldsymbol{W}_V\boldsymbol{H}^{(0)}=\begin{bmatrix}
 0 & 1 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
 \vdots & \vdots & \vdots & \ddots & \vdots\\
@@ -561,7 +561,7 @@ $$
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
-e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,\text{id}(\bm{x}_{T+1})}\\
+e_{4,1} & e_{4,\text{id}(\boldsymbol{x}_2)} & e_{4,\text{id}(\boldsymbol{x}_3)} & \cdots & e_{4,\text{id}(\boldsymbol{x}_{T+1})}\\
 \vdots & \vdots & \vdots & \ddots & \vdots
 \end{bmatrix}
 =\begin{bmatrix}
@@ -573,23 +573,23 @@ e_{4,1} & e_{4,\text{id}(\bm{x}_2)} & e_{4,\text{id}(\bm{x}_3)} & \cdots & e_{4,
 \end{bmatrix}_{h\times (T+1)}.
 $$
 
-其中 $\bm{V}_t=\begin{bmatrix}
-\bm{v}_1, \bm{v}_2, \cdots, \bm{v}_t
-\end{bmatrix}$ 取 $\bm{V}$ 的前 $t$ 列。由于 $\langle\mathrm{bos}\rangle$ 位于位置 $1$，$\bm{V}$ 唯一的非零列就是 $\bm{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T$，而 $\bm{v}_2,\ldots,\bm{v}_t$ 都是 $\bm{0}$ 向量。
+其中 $\boldsymbol{V}_t=\begin{bmatrix}
+\boldsymbol{v}_1, \boldsymbol{v}_2, \cdots, \boldsymbol{v}_t
+\end{bmatrix}$ 取 $\boldsymbol{V}$ 的前 $t$ 列。由于 $\langle\mathrm{bos}\rangle$ 位于位置 $1$ ， $\boldsymbol{V}$ 唯一的非零列就是 $\boldsymbol{v}_1=\begin{bmatrix}1 & 0 & \cdots & 0\end{bmatrix}^T$ ，而 $\boldsymbol{v}_2,\ldots,\boldsymbol{v}_t$ 都是 $\boldsymbol{0}$ 向量。
 
-再对 value 加权求和，只有 $\langle \mathrm{bos}\rangle$ 贡献了 $1$，所以
+再对 value 加权求和，只有 $\langle \mathrm{bos}\rangle$ 贡献了 $1$ ，所以
 
 $$
-\hat{\bm{o}}_t=\sum_{i\le t}\alpha_{t,i}\bm{v}_i
-=\frac{1}{t}\sum_{i\le t}\bm{v}_i=\begin{bmatrix}
+\hat{\boldsymbol{o}}_t=\sum_{i\le t}\alpha_{t,i}\boldsymbol{v}_i
+=\frac{1}{t}\sum_{i\le t}\boldsymbol{v}_i=\begin{bmatrix}
 \frac{1}{t} \\ 0 \\ \vdots \\ 0
 \end{bmatrix}.
 $$
 
-最后经过 $\bm{W}_O$ 矩阵，得到绝对位置 $t$ 处这个 query 的注意力输出：
+最后经过 $\boldsymbol{W}_O$ 矩阵，得到绝对位置 $t$ 处这个 query 的注意力输出：
 
 $$
-\bm{o}_t=\bm{W}_O\hat{\bm{o}}_t=\begin{bmatrix}
+\boldsymbol{o}_t=\boldsymbol{W}_O\hat{\boldsymbol{o}}_t=\begin{bmatrix}
 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & 0 & \cdots & 0\\
 1 & 0 & 0 & \cdots & 0\\
@@ -603,7 +603,7 @@ $$
 \end{bmatrix}.
 $$
 
-**注意力输出的第 3 维，恰好是绝对位置 $t$ 的倒数 $1/t$。**（$t=1$ 时 $\langle\mathrm{bos}\rangle$ 只看见自己，得到 $1$。）
+**注意力输出的第 3 维，恰好是绝对位置 $t$ 的倒数 $1/t$ 。**（ $t=1$ 时 $\langle\mathrm{bos}\rangle$ 只看见自己，得到 $1$ 。）
 
 #### 第三步，用 FFN 把 $1/t$ 还原成 $t$
 
@@ -618,15 +618,15 @@ $$
 这个构造里有两个关键点：
 
 - causal mask：让绝对位置 $t$ 上的 query 恰好能看见 $t$ 个 key，把“可见长度”变成位置计数器；
-- $\langle \mathrm{bos}\rangle$（或任意锚点 token）: 打破平移对称，给计数提供原点；实际使用中的 instruction / prompt 就在扮演这个角色
+- $\langle \mathrm{bos}\rangle$ （或任意锚点 token）: 打破平移对称，给计数提供原点；实际使用中的 instruction / prompt 就在扮演这个角色
 
 ### 3.2 NoPE 怎么学到相对位置
 
 论文 Theorem 2：
 
-> 若 $\bm{H}^{(1)}$ 中已含有绝对位置（且不被后续层覆盖），则 $l\ge 2$ 的自注意力可以实现相对位置编码：存在参数化使得
+> 若 $\boldsymbol{H}^{(1)}$ 中已含有绝对位置（且不被后续层覆盖），则 $l\ge 2$ 的自注意力可以实现相对位置编码：存在参数化使得
 > $$
-> \langle \bm{q}_t, \bm{k}_i\rangle = f_{\mathrm{content}}(\bm{q}_t,\bm{k}_i) + f_{\mathrm{relative}}(t-i).
+> \langle \boldsymbol{q}_t, \boldsymbol{k}_i\rangle = f_{\mathrm{content}}(\boldsymbol{q}_t,\boldsymbol{k}_i) + f_{\mathrm{relative}}(t-i).
 > $$
 
 构造同样只需要很少几个维度。
@@ -634,13 +634,13 @@ $$
 令第二层及之后的 
 
 $$
-\bm{W}_Q=\begin{bmatrix}
+\boldsymbol{W}_Q=\begin{bmatrix}
 1 & 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & -1 & 0 & \cdots & 0\\
 w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
 \vdots & \vdots & \vdots & \vdots & \ddots & \vdots\\
 \end{bmatrix}_{h\times d}, 
-\bm{W}_K =\begin{bmatrix}
+\boldsymbol{W}_K =\begin{bmatrix}
 0 & 0 & 1 & 0 & \cdots & 0\\
 1 & 0 & 0 & 0 & \cdots & 0\\
 w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
@@ -648,12 +648,12 @@ w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
 \end{bmatrix}_{h\times d}.
 $$
 
-$\bm{W}_Q, \bm{W}_K$ 矩阵除了前两个维度以外都可以是任意值， $\bm{W}_V, \bm{W}_O$ 可以是任意的只要不覆盖前三维。
+$\boldsymbol{W}_Q, \boldsymbol{W}_K$ 矩阵除了前两个维度以外都可以是任意值， $\boldsymbol{W}_V, \boldsymbol{W}_O$ 可以是任意的只要不覆盖前三维。
 
 之前证明了在该构造方法下 NoPE 把学到的绝对位置信息放在了第三维，不妨假设第 $l(l\ge2)$ 层隐状态
 
 $$
-\bm{H}^{(l)}=\begin{bmatrix}
+\boldsymbol{H}^{(l)}=\begin{bmatrix}
 1 & 1 & 1 & \cdots & 1\\
 1 & 0 & 0 & \cdots & 0\\
 1 & 2 & 3 & \cdots & T+1\\
@@ -662,10 +662,10 @@ h_{4,1} & h_{4,2} & h_{4,3} & \cdots & h_{4,T+1}\\
 \end{bmatrix}_{d\times (T+1)}.
 $$
 
-同样的，除了前三维度其余可以是任意值，我们还是同样考察位置 $t$ 的 $\bm{q}_t$：
+同样的，除了前三维度其余可以是任意值，我们还是同样考察位置 $t$ 的 $\boldsymbol{q}_t$ ：
 
 $$
-\bm{q}_t = \bm{W}_Q\bm{h}_t^{(l)}=\begin{bmatrix}
+\boldsymbol{q}_t = \boldsymbol{W}_Q\boldsymbol{h}_t^{(l)}=\begin{bmatrix}
 1 & 0 & 0 & 0 & \cdots & 0\\
 0 & 0 & -1 & 0 & \cdots & 0\\
 w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
@@ -679,12 +679,12 @@ w_{3,1} & w_{3,2} & w_{3,3} & w_{3,4} & \cdots & w_{3,h}\\
 \end{bmatrix}.
 $$
 
-$q_j\in \mathbb{R}$.
+$q_j\in \mathbb{R}$ .
 
-然后我们计算 $\bm{k}_i$：
+然后我们计算 $\boldsymbol{k}_i$ ：
 
 $$
-\bm{k}_i=\bm{W}_K\bm{h}_i^{(l)}=\begin{bmatrix}
+\boldsymbol{k}_i=\boldsymbol{W}_K\boldsymbol{h}_i^{(l)}=\begin{bmatrix}
 0 & 0 & 1 & 0 & \cdots & 0\\
 1 & 0 & 0 & 0 & \cdots & 0\\
 w_{3,1}' & w_{3,2}' & w_{3,3}' & w_{3,4}' & \cdots & w_{3,h}'\\
@@ -698,21 +698,21 @@ i \\ 1 \\ k_{3,i} \\ \vdots
 \end{bmatrix}
 $$
 
-$k_{j,i}\in \mathbb{R}$.
+$k_{j,i}\in \mathbb{R}$ .
 
 现在就可以对内积直接拆开：
 
 $$
 \begin{aligned}
-\langle \bm{q}_t, \bm{k}_i\rangle
+\langle \boldsymbol{q}_t, \boldsymbol{k}_i\rangle
 &= \underbrace{\begin{bmatrix}
 1 & -t & q_3 & \cdots
-\end{bmatrix}}_{\bm{q}_t^{\mathsf T}}\;
+\end{bmatrix}}_{\boldsymbol{q}_t^{\mathsf T}}\;
 \underbrace{\begin{bmatrix}
 i \\ 1 \\ k_{3,i} \\ \vdots
-\end{bmatrix}}_{\bm{k}_i}=
+\end{bmatrix}}_{\boldsymbol{k}_i}=
 1\cdot i + (-t)\cdot 1 + \sum_{j=3}^{h} q_j k_{j,i}\\
-&= \underbrace{\sum_{j=3}^{h} q_j k_{j,i}}_{f_{\mathrm{content}}(\bm{q},\bm{k})}
+&= \underbrace{\sum_{j=3}^{h} q_j k_{j,i}}_{f_{\mathrm{content}}(\boldsymbol{q},\boldsymbol{k})}
 \;+\;
 \underbrace{(i-t)}_{f_{\mathrm{relative}}(t-i)}.
 \end{aligned}
@@ -720,8 +720,8 @@ $$
 
 于是注意力分数干净地分成了两项：
 
-- $f_{\mathrm{content}}$：只和内容有关；
-- $f_{\mathrm{relative}}(t-i)=-(t-i)$：只和相对距离有关。
+- $f_{\mathrm{content}}$ ：只和内容有关；
+- $f_{\mathrm{relative}}(t-i)=-(t-i)$ ：只和相对距离有关。
 
 这和 T5 Relative Bias 把 $f(i-j)$ 加到 logits 上是同一类东西，只不过 NoPE 是自己学出来的，而不是写进架构里。而且论文指出，第一层的 MLP 甚至可以把任意关于绝对位置的函数写进隐状态，所以学到的 $f_{\mathrm{relative}}$ 不必是线性的，可以更复杂。
 
@@ -729,7 +729,7 @@ $$
 
 理论说既能学到绝对位置，也能学到相对位置，那实际学到的会不会有偏好呢？论文用了一个很聪明的办法：**比注意力模式**。
 
-对使用不同位置编码得到的模型 $A$ 和 $B$，在每一层 $l$ 、每个 head $P\in A, Q\in B$ 上算同位置 $t$ 注意力分布的 Jensen–Shannon 散度，再取两模型间所有 head 对的最小值：
+对使用不同位置编码得到的模型 $A$ 和 $B$ ，在每一层 $l$ 、每个 head $P\in A, Q\in B$ 上算同位置 $t$ 注意力分布的 Jensen–Shannon 散度，再取两模型间所有 head 对的最小值：
 
 $$
 D^{(l)}(A,B)=\min_{(P,Q)\in A_l\times B_l}\frac1T\sum_{t=1}^{T}D_{\mathrm{JS}}\bigl(P_t\|Q_t\bigr).
@@ -738,7 +738,7 @@ $$
 ![NoPE 和其他位置编码的 JS 散度图](JS-NoPE.png)
 *SCAN数据集上，NoPE注意力模式相对于其他位置编码方案的距离。左图是逐层距离，右图为全层平均距离。NoPE'是换随机种子训练的NoPE。图片来源：The Impact of Positional Encoding on Length Generalization in Transformers*
 
-两个分布越像，$D_{\mathrm{JS}}$ 越小，而两个分布差异越大，则 $D_{\mathrm{JS}}$ 越大。
+两个分布越像， $D_{\mathrm{JS}}$ 越小，而两个分布差异越大，则 $D_{\mathrm{JS}}$ 越大。
 
 通过比较使用 SGD 训练的 NoPE 和其他显式的位置编码，得到如下结果：
 
@@ -754,7 +754,7 @@ $$
 
 ### 3.4 长度泛化上的表现
 
-论文在 Copy / Reverse / Addition / Polynomial / Sort / Summation / Parity / LEGO / SCAN / PCFG 这批任务上（训练长度 $\le L=20$，测试到 $2L$）： NoPE 和 T5 RPE 打平或更好，剩下的表现都比较一般。
+论文在 Copy / Reverse / Addition / Polynomial / Sort / Summation / Parity / LEGO / SCAN / PCFG 这批任务上（训练长度 $\le L=20$ ，测试到 $2L$ ）： NoPE 和 T5 RPE 打平或更好，剩下的表现都比较一般。
 
 ### 3.5 小结
 
@@ -781,7 +781,7 @@ RoPE 把有用的相对位置先验直接写进架构，短距离上稳定、明
 
 ## 4. p-RoPE：只旋转部分通道
 
-谷歌团队在论文[Round and Round We Go! What makes Rotary Positional Encodings useful?](https://arxiv.org/abs/2410.06205)给出了 p-RoPE 方法，并且在之后的 Gemma 4 模型中沿用了这个位置编码方法($p=0.25$)。其实和之前*第二章 重新审视 RoPE：怎么失灵了*有相似之处， p-RoPE 设计的起点也是观察到了 **RoPE 的不同频率可能在承担不同的工作。** 之前的分析认为 RoPE 中高频部分主要是聚焦近邻位置，而低频部分则提供远距离信息。类似地，谷歌团队的分析认为：
+谷歌团队在论文[Round and Round We Go! What makes Rotary Positional Encodings useful?](https://arxiv.org/abs/2410.06205)给出了 p-RoPE 方法，并且在之后的 Gemma 4 模型中沿用了这个位置编码方法( $p=0.25$ )。其实和之前*第二章 重新审视 RoPE：怎么失灵了*有相似之处， p-RoPE 设计的起点也是观察到了 **RoPE 的不同频率可能在承担不同的工作。** 之前的分析认为 RoPE 中高频部分主要是聚焦近邻位置，而低频部分则提供远距离信息。类似地，谷歌团队的分析认为：
 
 - 高频通道对相邻 token 的位移非常敏感，适合构造“当前位置”、“前一个 token”或对角线这样的局部位置模式；
 - 低频通道随位置变化得很慢，更适合承载语义相似性，让相距较远但内容相关的 token 仍然能够对齐。
@@ -792,21 +792,21 @@ RoPE 把有用的相对位置先验直接写进架构，短距离上稳定、明
 
 论文从 RoPE 为什么有效开始研究。在苏神的博客中，他给出了一个 RoPE 具有远程衰减性的证明，这也被认为是 RoPE 奏效的关键原因。但是论文的质疑也就从这里开始，苏神给出的证明是一个衰减的上界，论文研究发现该上界的衰减并不能自然带来注意力实际的必然衰减。
 
-论文先证明给定固定的 query ，对应的注意力分数最大的 key 不一定只在近处，可能在任意地方。形式化的说，给定非零的 query $\bm{q}$ 以及和 key 的相对位置 $\delta\in\mathbb{Z}$ ，存在 $\bm{k}$ 使得 RoPE 之后该处的注意力分数最大，简单证明如下：
+论文先证明给定固定的 query ，对应的注意力分数最大的 key 不一定只在近处，可能在任意地方。形式化的说，给定非零的 query $\boldsymbol{q}$ 以及和 key 的相对位置 $\delta\in\mathbb{Z}$ ，存在 $\boldsymbol{k}$ 使得 RoPE 之后该处的注意力分数最大，简单证明如下：
 
 回顾之前的公式，位于位置 $m$ 的 $q$ 和位置 $n$ 的 $k$ 点积注意力, 忽略 $1/\sqrt{d}$ 的系数：
 
 $$
 s(m,n)
-=\bm{q}^{\mathsf T}\bm{R}^{n-m}\bm{k}.
+=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{n-m}\boldsymbol{k}.
 $$
 
-因为 causal mask，$q$ 只能看见前面的 $k$ ，所以 $m\ge n$ ，令相对距离 $r=m-n$ , 则有 $s(r)=\bm{q}\bm{R}^{-r}\bm{k}$ .
+因为 causal mask， $q$ 只能看见前面的 $k$ ，所以 $m\ge n$ ，令相对距离 $r=m-n$ , 则有 $s(r)=\boldsymbol{q}\boldsymbol{R}^{-r}\boldsymbol{k}$ .
 
-那么我们构造 $k=\bm{R}^{\delta}\bm{q}$ ，则有 
+那么我们构造 $k=\boldsymbol{R}^{\delta}\boldsymbol{q}$ ，则有 
 
 $$
-s(\delta)=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{k}=\bm{q}^{\mathsf T}\bm{R}^{-\delta}\bm{R}^{\delta}\bm{q}=\bm{q}^{\mathsf T}\bm{q}=\|\bm{q}\|^2.
+s(\delta)=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{-\delta}\boldsymbol{k}=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{-\delta}\boldsymbol{R}^{\delta}\boldsymbol{q}=\boldsymbol{q}^{\mathsf T}\boldsymbol{q}=\|\boldsymbol{q}\|^2.
 $$
 
 将这个构造的 $k$ 代入到其他任意距离 $r$ 的 $s(r)$ 中，则有
@@ -814,19 +814,19 @@ $$
 $$
 \begin{aligned}
 s(r)
-&=\bm{q}^{\mathsf T}\bm{R}^{-r}\bm{k}\\
-&=\bm{q}^{\mathsf T}\bm{R}^{-r}\bm{R}^{\delta}\bm{q}\\
-&=\bm{q}^{\mathsf T}\bm{R}^{\delta-r}\bm{q}\\
-&\le\|\bm{q}\|\cdot \|\bm{R}^{\delta-r}\bm{q}\| \\
-&=\|\bm{q}\|^2=s(\delta).
+&=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{-r}\boldsymbol{k}\\
+&=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{-r}\boldsymbol{R}^{\delta}\boldsymbol{q}\\
+&=\boldsymbol{q}^{\mathsf T}\boldsymbol{R}^{\delta-r}\boldsymbol{q}\\
+&\le\|\boldsymbol{q}\|\cdot \|\boldsymbol{R}^{\delta-r}\boldsymbol{q}\| \\
+&=\|\boldsymbol{q}\|^2=s(\delta).
 \end{aligned}
 $$
 
-最后两步分别使用了 Cauchy–Schwarz 不等式( $|\langle \bm{x},\bm{y}\rangle |\le\|\bm{x}\|\cdot\|\bm{y}\|$) 和旋转矩阵保范数性质。
+最后两步分别使用了 Cauchy–Schwarz 不等式( $|\langle \boldsymbol{x},\boldsymbol{y}\rangle |\le\|\boldsymbol{x}\|\cdot\|\boldsymbol{y}\|$ ) 和旋转矩阵保范数性质。
 
 这样我们就证明了目标距离 $\delta$ 处的分数不小于任何其他距离处的分数。
 
-基于此，论文还额外证明了对于从标准正态分布中采样的 $\bm{q},\bm{k}\sim \mathcal{N}(0,1)$ ，那么此时相对距离 $r$ 的分数 $s(r)$ 的期望是 0, 此处证明就略过了。
+基于此，论文还额外证明了对于从标准正态分布中采样的 $\boldsymbol{q},\boldsymbol{k}\sim \mathcal{N}(0,1)$ ，那么此时相对距离 $r$ 的分数 $s(r)$ 的期望是 0, 此处证明就略过了。
 
 那么到底是什么让 RoPE 奏效呢？
 
@@ -845,7 +845,7 @@ s(m,n)
 \sum_{i=1}^{d/2}
 \underbrace{
 \left(q_m^{(i)}\right)^\top
-\bm{R}\!\left((n-m)\theta_i\right)
+\boldsymbol{R}\!\left((n-m)\theta_i\right)
 k_n^{(i)}
 }_{\text{第 }i\text{ 个频率的分数贡献}}.
 $$
@@ -855,7 +855,7 @@ $$
 而某个频率对应的 query 和 key 分量都接近零，即使这个频率仍然存在，也几乎不影响结果。
 
 和之前的推导一样，某个频率的贡献 $|s(m,n)^{(i)}|=|\left(q_m^{(i)}\right)^\top
-\bm{R}\!\left((n-m)\theta_i\right)
+\boldsymbol{R}\!\left((n-m)\theta_i\right)
 k_n^{(i)}|
 \le \|q_m^{(i)}\|_2\|k_n^{(i)}\|_2$ 的上限就是 $q$ 和 $k$ 对应的二维块范数。如果对应的二维块范数乘积很小，那这确实可以限制贡献的大小。
 
@@ -872,15 +872,15 @@ k_n^{(i)}|
 高频匹配了位置信息，而语义信息聚焦谁的内容符合当前的 query 的要求，无论某个目标 token 在近处还是远处，都希望根据其内容找到它，因此也就适配低频。
 
 对于 RoPE 注意力分数 $s(m,n)$ , 
-当 $\theta_i$ 很小时， $(n-m)\theta_i\rightarrow0$，就有
+当 $\theta_i$ 很小时， $(n-m)\theta_i\rightarrow0$ ，就有
 
 $$
-\bm R\bigl((n-m)\theta_i\bigr)\approx \bm I,
+\boldsymbol R\bigl((n-m)\theta_i\bigr)\approx \boldsymbol I,
 $$
 
 这时内积主要反映内容相似性，而不是位置差异。
 
-然而 $\theta_i$ 再小也不是零，只要上下文足够长，$(n-m)\theta_i$ 仍会累积成较大的角度，原本应该稳定的语义通道也可能发生错位，在长上下文中并不真正远程衰减。也就由此引出了 p-RoPE 的想法。
+然而 $\theta_i$ 再小也不是零，只要上下文足够长， $(n-m)\theta_i$ 仍会累积成较大的角度，原本应该稳定的语义通道也可能发生错位，在长上下文中并不真正远程衰减。也就由此引出了 p-RoPE 的想法。
 
 ### 4.2 p-RoPE 的定义
 
@@ -893,12 +893,12 @@ $$
 p-RoPE 只对前 $\zeta$ 个二维通道进行旋转，对剩下的低频通道使用恒等变换：
 
 $$
-\bm R_{m}^{(p)}
+\boldsymbol R_{m}^{(p)}
 =\mathrm{diag}\left(\underbrace{
-\bm R(m\theta_1),
+\boldsymbol R(m\theta_1),
 \ldots,
-\bm R(m\theta_{\zeta})}_{\zeta \text{ 个}},
-\underbrace{\bm I,\ldots,\bm I}_{\frac{d}{2}-\zeta\text{ 个}}
+\boldsymbol R(m\theta_{\zeta})}_{\zeta \text{ 个}},
+\underbrace{\boldsymbol I,\ldots,\boldsymbol I}_{\frac{d}{2}-\zeta\text{ 个}}
 \right).
 $$
 
@@ -907,14 +907,14 @@ $$
 $$
 \begin{aligned}
 s_{m,n}^{(p)}
-&=\left(\bm q_m\right)^{\mathsf T}
-\left(\bm R_m^{(p)}\right)^{\mathsf T}
-\bm R_n^{(p)}\bm k_n\\
+&=\left(\boldsymbol q_m\right)^{\mathsf T}
+\left(\boldsymbol R_m^{(p)}\right)^{\mathsf T}
+\boldsymbol R_n^{(p)}\boldsymbol k_n\\
 &=\sum_{i=1}^{\zeta}
-\left(\bm q_m^{(i)}\right)^{\mathsf T}
-\bm R\bigl((n-m)\theta_i\bigr)\bm k_n^{(i)}
+\left(\boldsymbol q_m^{(i)}\right)^{\mathsf T}
+\boldsymbol R\bigl((n-m)\theta_i\bigr)\boldsymbol k_n^{(i)}
 +\sum_{i=\zeta+1}^{\frac{d}{2}}
-\left(\bm q_m^{(i)}\right)^{\mathsf T}\bm k_n^{(i)}.
+\left(\boldsymbol q_m^{(i)}\right)^{\mathsf T}\boldsymbol k_n^{(i)}.
 \end{aligned}
 $$
 
@@ -954,7 +954,7 @@ $$
 \ldots].
 $$
 
-如果局部窗口大小为 $W$，局部层在 causal mask 作用下可见性可以粗略写成
+如果局部窗口大小为 $W$ ，局部层在 causal mask 作用下可见性可以粗略写成
 
 $$
 M_{i,j}^{\mathrm{local}}
@@ -990,22 +990,22 @@ $$
 标准 attention 的 logit ：
 
 $$
- s_{i,j}=\frac{\bm q_i^{\mathsf T}\bm k_j}{\sqrt d}.
+ s_{i,j}=\frac{\boldsymbol q_i^{\mathsf T}\boldsymbol k_j}{\sqrt d}.
 $$
 
 加入 QK-Norm，query 和 key 会先被归一化：
 
 $$
-\hat{\bm q}_i=\frac{\bm q_i}{\|\bm q_i\|},
+\hat{\boldsymbol q}_i=\frac{\boldsymbol q_i}{\|\boldsymbol q_i\|},
 \qquad
-\hat{\bm k}_j=\frac{\bm k_j}{\|\bm k_j\|},
+\hat{\boldsymbol k}_j=\frac{\boldsymbol k_j}{\|\boldsymbol k_j\|},
 $$
 
 然后使用近似余弦相似度的分数
 
 $$
  a_{i,j}^{\mathrm{QK\text{-}Norm}}
-=\frac{\hat{\bm q}_i^{\mathsf T}\hat{\bm k}_j}{\tau}.
+=\frac{\hat{\boldsymbol q}_i^{\mathsf T}\hat{\boldsymbol k}_j}{\tau}.
 $$
 
 其中 $\tau$ 是可学习或预设的温度参数。这样做通常有助于缓解训练初期的数值不稳定，但也会抹掉 query 和 key 的范数信息。QK-Norm 能有效防止 Softmax 饱和，使注意力分数的分布更加平滑。这直接减少了训练过程中的损失尖峰，让更大、更深的模型能够稳定地训练下去。
@@ -1036,7 +1036,7 @@ $$
 G(d)=\mathbb{E}_x\left [\left \|\frac{\partial s(x)}{\partial e_{T-d}}\right\|_2\right],
 $$
 
-$e_{T-d}$ 是距离 $d$ 的 token 的 embedding，$s(x)$ 是模型在 $x$ 上的 next-token prediction 的 logit。这个可以用来量化每个历史 token 对模型预测有多敏感，也就是如果稍微改变位置 $T−d$ 处的输入 embedding，模型的输出 logit 会发生多大变化。 数值越大，说明模型当前的预测高度依赖该位置的 token，该 token 携带了完成当前预测所必需的关键信息。而数值越小，说明该位置的 token 对当前预测几乎无关紧要，模型可以忽略它。如果 $G(d)$ 在某个距离范围内仍然显著，意味着全注意力层在该距离上能接收到足够强的梯度来学习去那个位置找信息。
+$e_{T-d}$ 是距离 $d$ 的 token 的 embedding， $s(x)$ 是模型在 $x$ 上的 next-token prediction 的 logit。这个可以用来量化每个历史 token 对模型预测有多敏感，也就是如果稍微改变位置 $T−d$ 处的输入 embedding，模型的输出 logit 会发生多大变化。 数值越大，说明模型当前的预测高度依赖该位置的 token，该 token 携带了完成当前预测所必需的关键信息。而数值越小，说明该位置的 token 对当前预测几乎无关紧要，模型可以忽略它。如果 $G(d)$ 在某个距离范围内仍然显著，意味着全注意力层在该距离上能接收到足够强的梯度来学习去那个位置找信息。
 
 实验发现：位置 2048 token 之外的梯度影响已经接近平坦基线，但位置 512 到 2048 的区间仍然包含明显信号。当局部窗口选择一个较小的值，如 128 或者 512，模型仍然有很强的动力在全局层去学习 512-2048 之前的依赖关系，而如果局部窗口直接取到 2048，全局层就很容易被局部层替代。
 
@@ -1062,7 +1062,7 @@ $$
 g(n)=\log_a(a + n)
 $$
 
-其中 $n$ 表示序列位置， $a$ 是一个通过离线拟合得到的单一标量超参数（论文中 $a^* \approx 362$），控制曲线的增长速度。拟合过程如下：
+其中 $n$ 表示序列位置， $a$ 是一个通过离线拟合得到的单一标量超参数（论文中 $a^* \approx 362$ ），控制曲线的增长速度。拟合过程如下：
 
 - 从模型的训练分布中抽取 200 篇文档，每篇至少包含 32K token，以在延长上下文时尽量保持语义分布一致；用于这一分析的模型训练长度为 1K token。
 - 将每个 32K-token 上下文划分为 128-token 窗口，对每个窗口估计一个缩放因子，以最小化全部 200 篇文档上该窗口的困惑度。
